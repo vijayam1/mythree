@@ -1,0 +1,19 @@
+# Secrets: never in the public repo
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Recordings stay on the computer
+recordings/
+*.wav
+*.m4a
+
+# Personal notes for the builder
+CLAUDE.local.md
+.claude/
+
+.DS_Store
