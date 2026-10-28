@@ -23,10 +23,13 @@
     .mood.listening { background: #fff4dc; color: #7a4d00; }
     .mood.hearing { background: #e6f4ec; color: #0f5c3b; }
     .mood.error { background: #fdeaea; color: #8a1f1f; }
+    .mood.speaking { background: #e7eefb; color: #1d3f7a; }
+    .voice-tag { display: block; margin-top: 2px; font-size: 12px; color: var(--soft); }
     #heard { list-style: none; padding: 0; margin: 16px 0 0; }
     #heard li { padding: 10px 0; border-top: 1px solid #eceee6; font-size: 20px; line-height: 1.5; }
-    #heard li.thinking { color: var(--soft); }
-    #heard li.error { color: #8a1f1f; font-size: 16px; }
+    #heard li.thinking, .translation.thinking { color: var(--soft); }
+    #heard li.error, .translation.error { color: #8a1f1f; font-size: 16px; }
+    .translation { margin-top: 4px; padding-left: 12px; border-left: 3px solid var(--leaf); color: #0f5c3b; }
   </style>
 </head>
 <body>
@@ -38,13 +41,14 @@
     <span class="status">Being built for the Meta Global AI Developer Hackathon</span>
 
     <section class="ears" aria-labelledby="ears-title">
-      <h2 id="ears-title">Mythree's ears</h2>
+      <h2 id="ears-title">Mythree's ears, brain and voice</h2>
       <div class="row" role="group" aria-label="Who is speaking">
         <button data-lang="te" aria-pressed="true" lang="te">తెలుగు · తాతయ్య</button>
         <button data-lang="en" aria-pressed="false">English · Grandson</button>
       </div>
       <div class="row">
         <button id="start">Start listening</button>
+        <button id="refresh" title="Clear the conversation and load the newest Mythree">Refresh · మళ్ళీ మొదలు</button>
         <span id="mood" class="mood sleeping" role="status">Sleeping · నిద్రపోతున్నాను</span>
       </div>
       <ol id="heard" aria-live="polite"></ol>

@@ -5,14 +5,17 @@ never sent to the web page.
 """
 
 import json
-import os
-from pathlib import Path
 
 import httpx
 
+from app.settings import secret
+
 BASE = "https://api.meta.ai/v1"
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 EARS_MODEL = "muse-voice-transcribe-1.0"
+BRAIN_MODEL = "muse-spark-1.3"  # Standard model, not "contributor": family talk stays private
+# Main brain: Meta's open-weights model, run by Baseten (hackathon inference partner).
+OPEN_BRAIN_BASE = "https://inference.baseten.co/v1"
+OPEN_BRAIN_MODEL = "meta-models/muse-spark-open-1026"  # the hackathon's model; the credit key only works with it
 
 
 class MetaError(Exception):
@@ -20,14 +23,10 @@ class MetaError(Exception):
 
 
 def api_key():
-    if os.environ.get("MODEL_API_KEY"):
-        return os.environ["MODEL_API_KEY"]
-    if ENV_FILE.exists():
-        for line in ENV_FILE.read_text().splitlines():
-            name, _, value = line.partition("=")
-            if name.strip() == "MODEL_API_KEY":
-                return value.strip()
-    raise MetaError("No Meta key found in .env")
+    key = secret("MODEL_API_KEY")
+    if not key:
+        raise MetaError("No Meta key found in .env")
+    return key
 
 
 def transcribe(wav: bytes) -> str:
@@ -49,3 +48,31 @@ def transcribe(wav: bytes) -> str:
     if reply.status_code != 200:
         raise MetaError(f"Meta replied {reply.status_code}")
     return reply.json().get("transcript", "").strip()
+
+
+def chat(messages: list[dict]) -> str:
+    """Brain: Meta's open-weights Muse Spark Open (on Baseten) first; Meta's own API if that fails."""
+    open_key = secret("BASETEN_API_KEY")
+    if open_key:
+        try:
+            return _ask(OPEN_BRAIN_BASE, f"Api-Key {open_key}", OPEN_BRAIN_MODEL, messages)
+        except MetaError:
+            pass  # fall through to the backup brain
+    return _ask(BASE, f"Bearer {api_key()}", BRAIN_MODEL, messages)
+
+
+def _ask(base: str, auth: str, model: str, messages: list[dict]) -> str:
+    try:
+        reply = httpx.post(
+            f"{base}/chat/completions",
+            # Muse Spark thinks before answering; "minimal" gave the same translations
+            # in about 1–2 s instead of 3–6 s (tested 28 Oct).
+            json={"model": model, "messages": messages, "reasoning_effort": "minimal"},
+            headers={"Authorization": auth, "Accept": "application/json"},
+            timeout=20,
+        )
+    except httpx.HTTPError as e:
+        raise MetaError(f"Could not reach {base}: {e.__class__.__name__}") from e
+    if reply.status_code != 200:
+        raise MetaError(f"{base} replied {reply.status_code}")
+    return reply.json()["choices"][0]["message"]["content"].strip()
