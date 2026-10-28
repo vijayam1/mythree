@@ -13,6 +13,20 @@
     .te { font-size: 20px; color: var(--leaf); margin: 0 0 24px; }
     p { font-size: 18px; line-height: 1.6; color: var(--soft); }
     .status { display: inline-block; margin-top: 24px; padding: 8px 16px; border: 1px solid #d9dccf; border-radius: 999px; font-size: 15px; }
+    .ears { margin-top: 40px; padding: 20px 16px; border: 1px solid #d9dccf; border-radius: 16px; background: #fff; text-align: left; }
+    .ears h2 { margin: 0 0 12px; font-size: 20px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    button { font: inherit; font-size: 16px; padding: 10px 16px; border-radius: 10px; border: 1px solid #c9cdbf; background: #fff; color: var(--ink); cursor: pointer; }
+    button[aria-pressed="true"] { border-color: var(--leaf); background: #e6f4ec; color: #0f5c3b; }
+    #start { background: var(--leaf); border-color: var(--leaf); color: #fff; }
+    .mood { display: inline-block; padding: 6px 12px; border-radius: 999px; font-size: 15px; background: #eef0ea; color: var(--soft); }
+    .mood.listening { background: #fff4dc; color: #7a4d00; }
+    .mood.hearing { background: #e6f4ec; color: #0f5c3b; }
+    .mood.error { background: #fdeaea; color: #8a1f1f; }
+    #heard { list-style: none; padding: 0; margin: 16px 0 0; }
+    #heard li { padding: 10px 0; border-top: 1px solid #eceee6; font-size: 20px; line-height: 1.5; }
+    #heard li.thinking { color: var(--soft); }
+    #heard li.error { color: #8a1f1f; font-size: 16px; }
   </style>
 </head>
 <body>
@@ -22,6 +36,20 @@
     <p class="te" lang="te">మైత్రి · భాష అడ్డు కాకూడదు</p>
     <p>A live interpreter for family video calls. A grandfather speaks Telugu, his grandson hears English, and the other way round.</p>
     <span class="status">Being built for the Meta Global AI Developer Hackathon</span>
+
+    <section class="ears" aria-labelledby="ears-title">
+      <h2 id="ears-title">Mythree's ears</h2>
+      <div class="row" role="group" aria-label="Who is speaking">
+        <button data-lang="te" aria-pressed="true" lang="te">తెలుగు · తాతయ్య</button>
+        <button data-lang="en" aria-pressed="false">English · Grandson</button>
+      </div>
+      <div class="row">
+        <button id="start">Start listening</button>
+        <span id="mood" class="mood sleeping" role="status">Sleeping · నిద్రపోతున్నాను</span>
+      </div>
+      <ol id="heard" aria-live="polite"></ol>
+    </section>
   </main>
+  <script src="/static/ears.js"></script>
 </body>
 </html>

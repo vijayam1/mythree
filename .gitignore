@@ -9,6 +9,9 @@ __pycache__/
 
 # Recordings stay on the computer
 recordings/
+
+# The private own-voice lab (models, voice samples) never goes online
+voice-lab/
 *.wav
 *.m4a
 
