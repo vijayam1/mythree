@@ -25,7 +25,7 @@ def secret(name: str) -> str | None:
 
 
 def voice_id(person: str) -> str | None:
-    """The cloned voice of "grandfather" or "grandson" (made with each person's consent)."""
+    """The cloned voice of person "a" or "b" (made with each person's consent)."""
     if not VOICES_FILE.exists():
         return None
     return json.loads(VOICES_FILE.read_text()).get(person)

@@ -12,19 +12,148 @@ const ui = {
   start: document.getElementById("start"),
   mood: document.getElementById("mood"),
   heard: document.getElementById("heard"),
-  langs: document.querySelectorAll("[data-lang]"),
+  cards: document.querySelectorAll(".person"),
 };
-let lang = "te";
 let ctx, stream, node;
 
-ui.langs.forEach((b) => b.addEventListener("click", () => {
-  lang = b.dataset.lang;
-  ui.langs.forEach((x) => x.setAttribute("aria-pressed", x === b));
-}));
+// --- The two people on the call ---------------------------------------------
+// Any two people: each picks a relation, an optional name and a language,
+// remembered in this browser only. "a" is shown on the left, "b" on the right.
+// The relation tells the brain who is the elder, so Telugu stays respectful.
+const RELATIONS = {
+  grandpa: ["Grandpa", "తాతయ్య", "🧔"], grandma: ["Grandma", "అమ్మమ్మ / నానమ్మ", "👩‍🦱"],
+  father: ["Father", "నాన్న", "👨"], mother: ["Mother", "అమ్మ", "👩"],
+  son: ["Son", "కొడుకు", "👦"], daughter: ["Daughter", "కూతురు", "👧"],
+  grandson: ["Grandson", "మనవడు", "🧑"], granddaughter: ["Granddaughter", "మనవరాలు", "👧"],
+  uncle: ["Uncle", "మావయ్య / బాబాయ్", "👨"], aunt: ["Aunt", "అత్తయ్య / పిన్ని", "👩"],
+  friend: ["Friend", "స్నేహితులు", "🧑"], other: ["Someone", "ఇంకెవరైనా", "🙂"],
+};
+// Grandparents today are often in their 50s: young faces by default, and each
+// person can tap their face to pick their own. Faces start without a skin colour
+// (people in India have every skin tone); the small round button picks one.
+const FACES = ["🧔", "👨", "👩", "👩‍🦱", "🧑", "👦", "👧", "👨‍🦳", "👩‍🦳", "🧑‍🦱", "👱‍♀️", "🙂"];
+const TONES = ["", "\u{1F3FB}", "\u{1F3FC}", "\u{1F3FD}", "\u{1F3FE}", "\u{1F3FF}"];
+const TONE_COLOURS = ["#ffcc4d", "#f7d7c4", "#e8b894", "#c68e5f", "#8d5524", "#4a2f1d"];
+const plain = (face) => face.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, "");
+// The skin tone goes right after the first character of the emoji (👩 + 🏽 + ‍🦱).
+function withTone(face, tone) {
+  if (!tone || face === "🙂") return face;
+  const [first, ...rest] = [...face];
+  return first + tone + rest.join("");
+}
+const faceOf = (p) => plain(p.face || (RELATIONS[p.relation] || RELATIONS.other)[2]);
+const people = load() || {
+  a: { relation: "grandpa", name: "", lang: "te" },
+  b: { relation: "grandson", name: "", lang: "en" },
+};
+let speaker = "a";
+const other = (id) => (id === "a" ? "b" : "a");
+
+// How the brain hears about a person: "Ravi, the grandson" or just "the grandson".
+function describe(id) {
+  const p = people[id], relation = (RELATIONS[p.relation] || RELATIONS.other)[0].toLowerCase();
+  return p.name.trim() ? `${p.name.trim()}, the ${relation}` : `the ${relation}`;
+}
+
+function load() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("mythree-people"));
+    return saved && saved.a && saved.a.relation ? saved : null;
+  } catch { return null; }
+}
+function save() {
+  try { localStorage.setItem("mythree-people", JSON.stringify(people)); } catch { /* private window */ }
+}
+
+function showPeople() {
+  ui.cards.forEach((card) => {
+    const id = card.dataset.person, p = people[id];
+    card.querySelector(".face").textContent = withTone(faceOf(p), p.tone || "");
+    card.querySelector(".tone").style.background = TONE_COLOURS[TONES.indexOf(p.tone || "")];
+    card.querySelector(".relation").value = p.relation;
+    card.querySelector(".name").value = p.name;
+    card.querySelector(".lang").value = p.lang;
+    card.setAttribute("aria-pressed", id === speaker);
+  });
+}
+
+ui.cards.forEach((card) => {
+  const id = card.dataset.person;
+  const relation = card.querySelector(".relation");
+  for (const [key, [en, te]] of Object.entries(RELATIONS)) relation.add(new Option(`${te} · ${en}`, key));
+  card.addEventListener("click", (e) => {
+    if (e.target.closest("input, select, .face, .tone")) return;
+    speaker = id;
+    showPeople();
+  });
+  card.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target === card) { e.preventDefault(); card.click(); }
+  });
+  relation.addEventListener("change", (e) => {
+    people[id].relation = e.target.value;
+    delete people[id].face;   // a new relation brings its own face, until they pick one
+    save(); showPeople();
+  });
+  card.querySelector(".tone").addEventListener("click", () => {
+    people[id].tone = TONES[(TONES.indexOf(people[id].tone || "") + 1) % TONES.length];
+    save(); showPeople();
+  });
+  card.querySelector(".face").addEventListener("click", () => {
+    people[id].face = FACES[(FACES.indexOf(faceOf(people[id])) + 1) % FACES.length];
+    save(); showPeople();
+  });
+  card.querySelector(".name").addEventListener("input", (e) => { people[id].name = e.target.value; save(); });
+  card.querySelector(".lang").addEventListener("change", (e) => {
+    people[id].lang = e.target.value;
+    if (people[other(id)].lang === e.target.value) {   // the two must speak different languages
+      people[other(id)].lang = e.target.value === "te" ? "en" : "te";
+    }
+    save(); showPeople();
+  });
+});
+showPeople();
+
+// --- Controls: voice on/off, animation on/off, type instead of speaking -----
+const prefs = (() => { try { return JSON.parse(localStorage.getItem("mythree-prefs")) || {}; } catch { return {}; } })();
+function applyPrefs() {
+  document.body.classList.toggle("quiet", !!prefs.quiet);
+  document.body.classList.toggle("still", !!prefs.still);
+  document.getElementById("typing").hidden = !prefs.typing;
+  const set = (id, on, onText, offText) => {
+    const b = document.getElementById(id);
+    b.setAttribute("aria-pressed", on);
+    b.textContent = on ? onText : offText;
+  };
+  set("voice-btn", !prefs.quiet, "🔊 Voice on", "🔇 Voice off");
+  set("motion-btn", !prefs.still, "🕊️ Animation on", "⏸️ Animation off");
+  set("type-btn", !!prefs.typing, "⌨️ Typing on", "⌨️ Type instead");
+  try { localStorage.setItem("mythree-prefs", JSON.stringify(prefs)); } catch { /* private window */ }
+}
+document.getElementById("voice-btn").addEventListener("click", () => { prefs.quiet = !prefs.quiet; applyPrefs(); });
+document.getElementById("motion-btn").addEventListener("click", () => {
+  prefs.still = !prefs.still; applyPrefs(); dispatchEvent(new Event("resize"));   // send her home
+});
+document.getElementById("type-btn").addEventListener("click", () => {
+  prefs.typing = !prefs.typing; applyPrefs();
+  if (prefs.typing) document.getElementById("type-text").focus();
+});
+applyPrefs();
+
+// Typing: the chosen person types instead of speaking; the rest is the same.
+document.getElementById("typing").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const box = document.getElementById("type-text"), text = box.value.trim();
+  if (!text) return;
+  box.value = "";
+  const who = speaker, lang = people[who].lang, line = newBubble(who);
+  showSaid(line, text, lang);
+  await translate(line, { text, lang }, who);
+});
 
 function setMood(name, text) {
-  ui.mood.className = "mood " + name;
+  ui.mood.className = "mood sr-only " + name;  // read aloud by screen readers; the koel shows it on screen
   ui.mood.textContent = text;
+  document.body.dataset.mood = name;  // the koel acts out the mood
 }
 
 ui.start.addEventListener("click", () => (ctx ? stop() : start()));
@@ -47,7 +176,7 @@ async function start() {
   source.connect(node);
   node.connect(ctx.destination);
   node.onaudioprocess = (e) => listen(new Float32Array(e.inputBuffer.getChannelData(0)));
-  ui.start.textContent = "Stop listening";
+  showButton(true);
   setMood("listening", "Listening… · వింటున్నాను…");
 }
 
@@ -57,8 +186,18 @@ function stop() {
   ctx.close();
   ctx = null;
   reset();
-  ui.start.textContent = "Start listening";
-  setMood("sleeping", "Sleeping · నిద్రపోతున్నాను");
+  showButton(false);
+  setMood("goodbye", "Goodbye");
+  window.mythreeBird?.goodbye();
+  setTimeout(() => { if (!ctx) setMood("sleeping", "Sleeping"); }, 2200);
+}
+
+function showButton(on) {
+  const words = on ? "Stop listening" : "Start listening";
+  ui.start.classList.toggle("on", on);
+  ui.start.textContent = on ? "⏹" : "🎙️";
+  ui.start.setAttribute("aria-label", words);
+  document.getElementById("start-label").textContent = words;
 }
 
 // --- Finding sentences ------------------------------------------------------
@@ -99,11 +238,28 @@ function listen(chunk) {
 }
 
 // --- Sending a sentence -----------------------------------------------------
-async function send(sentence, rate) {
+function newBubble(who) {
   const line = document.createElement("li");
   line.className = "thinking";
+  line.dataset.side = who;  // the first person's bubbles on the left, the second's on the right
   line.textContent = "…";
-  ui.heard.prepend(line);
+  ui.heard.append(line);
+  line.scrollIntoView({ behavior: "smooth", block: "end" });
+  return line;
+}
+
+function showSaid(line, text, lang) {
+  line.className = "";
+  line.textContent = "";
+  const said = document.createElement("div");
+  said.lang = lang;
+  said.textContent = text;
+  line.append(said);
+}
+
+async function send(sentence, rate) {
+  const who = speaker, lang = people[who].lang;   // who was talking when this sentence was heard
+  const line = newBubble(who);
   const form = new FormData();
   form.append("audio", toWav(sentence, rate), "sentence.wav");
   form.append("lang", lang);
@@ -111,14 +267,9 @@ async function send(sentence, rate) {
     const reply = await fetch("/api/hear", { method: "POST", body: form });
     const data = await reply.json();
     if (!reply.ok) throw new Error(data.detail);
-    line.className = "";
-    line.textContent = "";
-    if (!data.text) { line.textContent = "(nothing heard)"; return; }
-    const said = document.createElement("div");
-    said.lang = data.lang;
-    said.textContent = data.text;
-    line.append(said);
-    await translate(line, data);
+    if (!data.text) { line.className = ""; line.textContent = "(nothing heard)"; return; }
+    showSaid(line, data.text, data.lang);
+    await translate(line, data, who);
   } catch (err) {
     line.textContent = err.message || "Mythree couldn't hear that. Please say it again.";
     line.className = "error";
@@ -128,28 +279,33 @@ async function send(sentence, rate) {
 // --- Brain: translate for the other person ----------------------------------
 const history = [];  // earlier sentences, kept only in this page, gone when it closes
 
-async function translate(line, said) {
+async function translate(line, said, who) {
+  const to = other(who);
   const out = document.createElement("div");
   out.className = "translation thinking";
-  out.textContent = "Thinking… · ఆలోచిస్తున్నాను…";
+  out.textContent = "Translating…";
   line.append(out);
+  if (!muted) setMood("thinking", "Thinking… · ఆలోచిస్తున్నాను…");
   try {
     const reply = await fetch("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: said.text, lang: said.lang, history: history.slice(-6) }),
+      body: JSON.stringify({
+        text: said.text, lang: said.lang, to: people[to].lang,
+        who: describe(who), listener: describe(to), history: history.slice(-6),
+      }),
     });
     const data = await reply.json();
     if (!reply.ok) throw new Error(data.detail);
     out.lang = data.lang;
     out.textContent = data.text;
     out.className = "translation";
-    await say(out, data.text, data.lang);
+    await say(out, data.text, data.lang, who);
   } catch (err) {
     out.textContent = err.message || "Mythree couldn't translate that. Please say it again.";
     out.className = "translation error";
   }
-  history.push({ text: said.text, lang: said.lang });
+  history.push({ text: said.text, lang: said.lang, who: describe(who) });
 }
 
 // --- Voice: speak the translation -------------------------------------------
@@ -157,22 +313,27 @@ async function translate(line, said) {
 // Mythree stops listening while it speaks so it never hears itself.
 let muted = false, queue = Promise.resolve();
 
-function say(out, text, lang) {
-  queue = queue.then(() => sayNow(out, text, lang));
+function say(out, text, lang, person) {
+  queue = queue.then(() => sayNow(out, text, lang, person));
   return queue;
 }
 
-async function sayNow(out, text, lang) {
+async function sayNow(out, text, lang, person) {  // in the voice of the person who spoke
   const tag = document.createElement("span");
   tag.className = "voice-tag";
   out.append(tag);
+  if (document.body.classList.contains("quiet")) {   // "Voice off": text only
+    tag.textContent = "voice off";
+    setMood(ctx ? "listening" : "sleeping", ctx ? "Listening…" : "Sleeping");
+    return;
+  }
   muted = true;
   setMood("speaking", "Speaking… · మాట్లాడుతున్నాను…");
   try {
     const reply = await fetch("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, lang }),
+      body: JSON.stringify({ text, lang, person }),
     });
     if (!reply.ok) throw new Error("no own voice");
     tag.textContent = "translated voice · own voice";
@@ -182,12 +343,21 @@ async function sayNow(out, text, lang) {
     await standardVoice(text, lang);
   } finally {
     muted = false;
-    if (ctx) setMood("listening", "Listening… · వింటున్నాను…");
+    setMood(ctx ? "listening" : "sleeping", ctx ? "Listening…" : "Sleeping");   // after typing, she rests again
   }
 }
 
 function play(audio) {
-  return new Promise((done) => {
+  try { window.mythreeBird?.lipsync(audio); } catch { /* her beak just uses the plain animation */ }
+  return new Promise((resolve) => {
+    // Never wait forever: if the sound stops moving for 6 s, carry on so Mythree keeps listening.
+    let last = -1, still = 0;
+    const guard = setInterval(() => {
+      still = audio.currentTime === last ? still + 1 : 0;
+      last = audio.currentTime;
+      if (still >= 6) { audio.pause(); done(); }
+    }, 1000);
+    const done = () => { clearInterval(guard); resolve(); };
     audio.onended = audio.onerror = done;
     audio.play().catch(done);
   });

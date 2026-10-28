@@ -32,6 +32,11 @@ def test_english_is_not_changed(monkeypatch):
     assert send(lang="en").json()["text"] == "Hi Grandpa"
 
 
+def test_the_words_decide_the_language_not_the_card(monkeypatch):
+    monkeypatch.setattr(meta, "transcribe", lambda wav: "నాన్నా, భోజనం చేశావా? Dallas లో ఎండలు")
+    assert send(lang="en").json()["lang"] == "te"
+
+
 def test_unknown_language_is_refused():
     assert send(lang="xx").status_code == 400
 

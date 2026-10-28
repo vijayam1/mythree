@@ -1,8 +1,9 @@
 """Mythree's voice: speaks a translation in the speaker's own (cloned) voice, using Sarvam.
 
-The grandfather's words, translated into English, are spoken in the
-grandfather's voice; the grandson's words, translated into Telugu, in the
-grandson's voice. Each voice is cloned only with that person's consent.
+Each person's words, translated, are spoken in that person's own voice:
+a grandfather's Telugu becomes English in his voice, his grandson's English
+becomes Telugu in the grandson's voice. Each voice is cloned only with that
+person's consent.
 
 The sound is streamed: the first words play while the rest is still being
 made (first sound after about 2.5 s instead of 4.7 s, tested 28 Oct).
@@ -23,18 +24,13 @@ class VoiceError(Exception):
     """The voice service could not speak (no key, no voice, network, or an error reply)."""
 
 
-def owner(spoken_lang: str) -> str:
-    """Whose words are being spoken: English output carries the grandfather's words, Telugu the grandson's."""
-    return "grandfather" if spoken_lang == "en" else "grandson"
-
-
-def speak(text: str, lang: str) -> Iterator[bytes]:
-    """Start saying the text in language lang ("te" or "en"), in its owner's voice.
+def speak(text: str, lang: str, person: str) -> Iterator[bytes]:
+    """Start saying the text in language lang ("te" or "en"), in person "a" or "b"'s voice.
 
     Returns the MP3 sound piece by piece. Problems found before the first
     piece raise VoiceError, so the page can switch to the standard voice.
     """
-    key, voice = secret("SARVAM_API_KEY"), voice_id(owner(lang))
+    key, voice = secret("SARVAM_API_KEY"), voice_id(person)
     if not key or not voice:
         raise VoiceError("No Sarvam key or cloned voice yet")
     client = httpx.Client(timeout=30)

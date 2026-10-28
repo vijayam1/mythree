@@ -13,11 +13,12 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from app import brain, meta, voice
-from app.telugu import devanagari_to_telugu
+from app.telugu import devanagari_to_telugu, language_of
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 MAX_SENTENCE_BYTES = 2_000_000  # about 60 seconds of speech at 16 kHz
 LANGUAGES = {"te", "en"}
+PEOPLE = {"a", "b"}  # the two people on the call
 
 app = FastAPI(title="Mythree")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -53,44 +54,60 @@ async def hear(audio: UploadFile = File(...), lang: str = Form(...)):
     except meta.MetaError:
         raise HTTPException(502, "Mythree couldn't hear that just now. Please say it again. "
                                  "మళ్ళీ ఒకసారి చెప్పండి.")
-    if lang == "te":
-        text = devanagari_to_telugu(text)
-    return {"text": text, "lang": lang}
+    text = devanagari_to_telugu(text)   # only Telugu and English for now, so Hindi letters are Telugu
+    return {"text": text, "lang": language_of(text) or lang}   # trust the words over the card
+
+
+Name = Field(default="", max_length=80)  # e.g. "Ravi, the grandson"
 
 
 class Said(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     lang: str
+    who: str = Name  # the speaker's name, as typed on the page
 
 
 class Translate(Said):
+    to: str
+    listener: str = Name
     history: list[Said] = Field(default=[], max_length=20)  # earlier sentences, kept only by the page
 
 
 @app.post("/api/translate")
 async def translate(said: Translate):
-    """Brain: one sentence in one language, out in the other. Nothing is saved."""
-    if said.lang not in LANGUAGES:
-        raise HTTPException(400, "Unknown language")
+    """Brain: one person's sentence, in the other person's language. Nothing is saved."""
+    if said.lang not in LANGUAGES or said.to not in LANGUAGES or said.lang == said.to:
+        raise HTTPException(400, "Choose two different languages")
+    # If the card's language is wrong (Telugu said on an "English" card), go by the words themselves.
+    spoken = language_of(said.text)
+    if spoken and spoken != said.lang:
+        said.lang, said.to = spoken, said.lang
     history = [h.model_dump() for h in said.history if h.lang in LANGUAGES]
     try:
-        text = await run_in_threadpool(brain.translate, said.text, said.lang, history)
+        text = await run_in_threadpool(brain.translate, said.text, said.lang, said.to,
+                                       said.who or "One person", said.listener or "the other person", history)
     except meta.MetaError:
         raise HTTPException(502, "Mythree couldn't translate that just now. Please say it again. "
                                  "మళ్ళీ ఒకసారి చెప్పండి.")
-    return {"text": text, "lang": "en" if said.lang == "te" else "te"}
+    return {"text": text, "lang": said.to}
+
+
+class Speak(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    lang: str
+    person: str  # "a" or "b": whose voice to use (the person who said the original words)
 
 
 @app.post("/api/speak")
-async def speak(said: Said):
+async def speak(said: Speak):
     """Voice: a translation in, its sound in the speaker's own voice out (MP3, streamed).
 
     If the own voice can't be made, the page falls back to the browser's standard voice.
     """
-    if said.lang not in LANGUAGES:
-        raise HTTPException(400, "Unknown language")
+    if said.lang not in LANGUAGES or said.person not in PEOPLE:
+        raise HTTPException(400, "Unknown language or person")
     try:
-        sound = await run_in_threadpool(voice.speak, said.text, said.lang)
+        sound = await run_in_threadpool(voice.speak, said.text, said.lang, said.person)
     except voice.VoiceError:
         raise HTTPException(503, "Own voice not available, using the standard voice")
     return StreamingResponse(sound, media_type="audio/mpeg")
