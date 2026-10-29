@@ -8,6 +8,7 @@ really talks) is private: it is read from private/phrasebook.md, which never
 goes online. Without it, Mythree still works, just less personally.
 """
 
+import os
 import re
 from pathlib import Path
 
@@ -30,10 +31,12 @@ Into Telugu:
 - Telugu script only.
 
 Into English:
-- Warm, natural, everyday English.
+- Plain, gentle, warm English, the way a loving grandparent or parent really speaks.
+  No slang or trendy words: never "Hey", "What's up", "buddy", "kiddo", "gonna". "హలో" is "Hello".
 - Pet names stay pet names: elders lovingly call a child బాబు, నాన్నా, అమ్మా, చిన్నా, కన్నా, బంగారం.
   Keep them exactly, written in English letters (Babu, Nanna, Amma, Chinna, Kanna, Bangaram).
   Don't translate them: never "dear", "my boy", "my girl", "father" or "mother".
+  Never add a pet name or a name that wasn't said (ఏరా is just a friendly "Hello", not "Babu").
 - "అయినా" starting a new topic means "anyway", not "but".
 - Keep the meaning, the questions and the feeling. Don't add or drop anything.
 
@@ -45,11 +48,18 @@ Both ways:
 
 
 def family_examples() -> str:
-    """The private phrase book's table, as "English → Telugu" lines (empty if there is no phrase book)."""
-    if not PHRASEBOOK.exists():
+    """The private phrase book's table, as "English → Telugu" lines (empty if there is no phrase book).
+
+    Online, the phrase book is kept in the host's secret store (MYTHREE_PHRASEBOOK) instead of a file.
+    """
+    if os.environ.get("MYTHREE_PHRASEBOOK"):
+        book = os.environ["MYTHREE_PHRASEBOOK"]
+    elif PHRASEBOOK.exists():
+        book = PHRASEBOOK.read_text()
+    else:
         return ""
     lines = []
-    for row in PHRASEBOOK.read_text().splitlines():
+    for row in book.splitlines():
         cells = [c.strip() for c in row.strip().strip("|").split("|")]
         if len(cells) == 3 and cells[1] and not cells[1].startswith(("Grandson", "---")):
             lines.append(f"{cells[1]} → {cells[2]}")

@@ -7,6 +7,7 @@ const MIN_SPEECH_MS = 400;   // shorter sounds (a cough, a click) are ignored
 const MAX_SENTENCE_MS = 25000;
 const PRE_ROLL_MS = 300;     // keep a little sound from just before the voice started
 const TARGET_RATE = 16000;   // Meta wants 16 kHz
+const QUIET_STOP_MS = 3 * 60 * 1000;   // nobody spoke for 3 minutes (the call ended?): stop listening
 
 const ui = {
   start: document.getElementById("start"),
@@ -15,6 +16,22 @@ const ui = {
   cards: document.querySelectorAll(".person"),
 };
 let ctx, stream, node;
+
+// --- Passcode (online only) --------------------------------------------------
+// Online, Mythree asks for a passcode once; this browser remembers it.
+let passcode = (() => { try { return localStorage.getItem("mythree-passcode") || ""; } catch { return ""; } })();
+
+async function api(url, options = {}) {
+  options.headers = { ...(options.headers || {}), "X-Mythree-Passcode": passcode };
+  const reply = await fetch(url, options);
+  if (reply.status !== 401) return reply;
+  const typed = prompt("Mythree passcode · పాస్‌కోడ్");
+  if (!typed) return reply;
+  passcode = typed.trim();
+  try { localStorage.setItem("mythree-passcode", passcode); } catch { /* private window */ }
+  return api(url, options);
+}
+api("/api/hello");   // ask for the passcode right away, not in the middle of a sentence
 
 // --- The two people on the call ---------------------------------------------
 // Any two people: each picks a relation, an optional name and a language,
@@ -145,7 +162,7 @@ document.getElementById("typing").addEventListener("submit", async (e) => {
   const box = document.getElementById("type-text"), text = box.value.trim();
   if (!text) return;
   box.value = "";
-  const who = speaker, lang = people[who].lang, line = newBubble(who);
+  const lang = looksTelugu(text) ? "te" : "en", who = whoSpeaks(lang), line = newBubble(who);
   showSaid(line, text, lang);
   await translate(line, { text, lang }, who);
 });
@@ -176,11 +193,25 @@ async function start() {
   source.connect(node);
   node.connect(ctx.destination);
   node.onaudioprocess = (e) => listen(new Float32Array(e.inputBuffer.getChannelData(0)));
+  // If another app (like the call) takes the microphone away, stop instead of pretending to listen.
+  stream.getAudioTracks().forEach((t) => (t.onended = () => ctx && stop("Microphone stopped · మైక్ ఆగిపోయింది")));
+  lastHeard = Date.now();
   showButton(true);
   setMood("listening", "Listening… · వింటున్నాను…");
 }
 
-function stop() {
+// Stop means stop: no more listening, the voice is cut off, and waiting sentences are dropped.
+let session = 0, playing = null, speakingFor = 0;
+function hush() {
+  session++;
+  playing?.pause();
+  playing = null;
+  window.speechSynthesis?.cancel();
+  muted = false;
+}
+
+function stop(why) {
+  hush();
   node.disconnect();
   stream.getTracks().forEach((t) => t.stop());
   ctx.close();
@@ -189,6 +220,7 @@ function stop() {
   showButton(false);
   setMood("goodbye", "Goodbye");
   window.mythreeBird?.goodbye();
+  if (why) setTimeout(() => window.mythreeBird?.bubble(why, 8000), 2100);
   setTimeout(() => { if (!ctx) setMood("sleeping", "Sleeping"); }, 2200);
 }
 
@@ -202,13 +234,18 @@ function showButton(on) {
 
 // --- Finding sentences ------------------------------------------------------
 let noise = 0.01, speaking = false, chunks = [], preRoll = [], speechMs = 0, quietMs = 0;
+let lastHeard = 0;   // when someone last said a sentence, or Mythree last spoke
 
 function reset() {
   speaking = false; chunks = []; preRoll = []; speechMs = 0; quietMs = 0;
 }
 
 function listen(chunk) {
-  if (muted) { reset(); return; }   // Mythree is speaking: don't hear itself
+  if (muted) { reset(); lastHeard = Date.now(); return; }   // Mythree is speaking: don't hear itself
+  if (Date.now() - lastHeard > QUIET_STOP_MS) {
+    stop("No one spoke for 3 minutes, so I stopped listening · 3 నిమిషాలు ఎవరూ మాట్లాడలేదు");
+    return;
+  }
   const ms = (chunk.length / ctx.sampleRate) * 1000;
   const level = Math.sqrt(chunk.reduce((s, x) => s + x * x, 0) / chunk.length);
   const start = Math.max(0.015, noise * 3);
@@ -233,7 +270,7 @@ function listen(chunk) {
     const sentence = chunks, long = speechMs - quietMs;
     reset();
     setMood("listening", "Listening… · వింటున్నాను…");
-    if (long >= MIN_SPEECH_MS) send(sentence, ctx.sampleRate);
+    if (long >= MIN_SPEECH_MS) { lastHeard = Date.now(); send(sentence, ctx.sampleRate); }
   }
 }
 
@@ -257,19 +294,30 @@ function showSaid(line, text, lang) {
   line.append(said);
 }
 
+// Hands-free: Mythree knows who is talking from the language of their words
+// (Telugu words → the Telugu speaker, English words → the English speaker).
+function whoSpeaks(lang) {
+  const id = Object.keys(people).find((p) => people[p].lang === lang);
+  if (id && id !== speaker) { speaker = id; showPeople(); }   // light up their card; the koel flies there
+  return id || speaker;
+}
+const looksTelugu = (text) => /[\u0C00-\u0C7F]/.test(text);
+
 async function send(sentence, rate) {
-  const who = speaker, lang = people[who].lang;   // who was talking when this sentence was heard
-  const line = newBubble(who);
+  const mine = session, lang = people[speaker].lang;
+  const line = newBubble(speaker);
   const form = new FormData();
   form.append("audio", toWav(sentence, rate), "sentence.wav");
   form.append("lang", lang);
   try {
-    const reply = await fetch("/api/hear", { method: "POST", body: form });
+    const reply = await api("/api/hear", { method: "POST", body: form });
     const data = await reply.json();
     if (!reply.ok) throw new Error(data.detail);
     if (!data.text) { line.className = ""; line.textContent = "(nothing heard)"; return; }
+    const who = whoSpeaks(data.lang);
+    line.dataset.side = who;
     showSaid(line, data.text, data.lang);
-    await translate(line, data, who);
+    await translate(line, data, who, mine);
   } catch (err) {
     line.textContent = err.message || "Mythree couldn't hear that. Please say it again.";
     line.className = "error";
@@ -279,7 +327,7 @@ async function send(sentence, rate) {
 // --- Brain: translate for the other person ----------------------------------
 const history = [];  // earlier sentences, kept only in this page, gone when it closes
 
-async function translate(line, said, who) {
+async function translate(line, said, who, mine = session) {   // mine: the listening session it belongs to
   const to = other(who);
   const out = document.createElement("div");
   out.className = "translation thinking";
@@ -287,7 +335,7 @@ async function translate(line, said, who) {
   line.append(out);
   if (!muted) setMood("thinking", "Thinking… · ఆలోచిస్తున్నాను…");
   try {
-    const reply = await fetch("/api/translate", {
+    const reply = await api("/api/translate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -300,7 +348,7 @@ async function translate(line, said, who) {
     out.lang = data.lang;
     out.textContent = data.text;
     out.className = "translation";
-    await say(out, data.text, data.lang, who);
+    if (mine === session) await say(out, data.text, data.lang, who, mine);   // not after Stop
   } catch (err) {
     out.textContent = err.message || "Mythree couldn't translate that. Please say it again.";
     out.className = "translation error";
@@ -313,12 +361,14 @@ async function translate(line, said, who) {
 // Mythree stops listening while it speaks so it never hears itself.
 let muted = false, queue = Promise.resolve();
 
-function say(out, text, lang, person) {
-  queue = queue.then(() => sayNow(out, text, lang, person));
+function say(out, text, lang, person, mine = session) {
+  queue = queue.then(() => sayNow(out, text, lang, person, mine));
   return queue;
 }
 
-async function sayNow(out, text, lang, person) {  // in the voice of the person who spoke
+async function sayNow(out, text, lang, person, mine = session) {  // in the voice of the person who spoke
+  if (mine !== session) return;   // Stop was pressed while this sentence waited
+  speakingFor = mine;
   const tag = document.createElement("span");
   tag.className = "voice-tag";
   out.append(tag);
@@ -330,7 +380,7 @@ async function sayNow(out, text, lang, person) {  // in the voice of the person 
   muted = true;
   setMood("speaking", "Speaking… · మాట్లాడుతున్నాను…");
   try {
-    const reply = await fetch("/api/speak", {
+    const reply = await api("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, lang, person }),
@@ -348,6 +398,8 @@ async function sayNow(out, text, lang, person) {  // in the voice of the person 
 }
 
 function play(audio) {
+  if (speakingFor !== session) return Promise.resolve();   // stopped before the sound began
+  playing = audio;
   try { window.mythreeBird?.lipsync(audio); } catch { /* her beak just uses the plain animation */ }
   return new Promise((resolve) => {
     // Never wait forever: if the sound stops moving for 6 s, carry on so Mythree keeps listening.
@@ -358,7 +410,7 @@ function play(audio) {
       if (still >= 6) { audio.pause(); done(); }
     }, 1000);
     const done = () => { clearInterval(guard); resolve(); };
-    audio.onended = audio.onerror = done;
+    audio.onended = audio.onerror = audio.onpause = done;   // pause = Stop was pressed
     audio.play().catch(done);
   });
 }

@@ -16,14 +16,22 @@ def test_speak_streams_the_sound(monkeypatch):
     assert reply.content == b"ID3...mp3"
 
 
-def test_the_speakers_own_voice_is_used(monkeypatch):
+def test_the_speakers_own_voice_is_used_elevenlabs_first(monkeypatch):
     asked = []
-    monkeypatch.setattr(voice, "voice_id", lambda person: asked.append(person))
+    monkeypatch.setattr(voice, "voice_id", lambda person, service: asked.append((person, service)))
     try:
         voice.speak("hi", "en", "b")
     except voice.VoiceError:
         pass
-    assert asked == ["b"]
+    assert asked == [("b", "elevenlabs"), ("b", "sarvam")]
+
+
+def test_sarvam_takes_over_when_elevenlabs_fails(monkeypatch):
+    def broken(text, lang, person):
+        raise voice.VoiceError("ElevenLabs replied 401")
+    monkeypatch.setattr(voice, "_elevenlabs", broken)
+    monkeypatch.setattr(voice, "_sarvam", lambda text, lang, person: iter([b"sarvam"]))
+    assert list(voice.speak("hi", "te", "a")) == [b"sarvam"]
 
 
 def test_unknown_person_is_refused():
@@ -43,14 +51,15 @@ def test_unknown_language_is_refused():
 
 def test_voice_ids_come_from_the_private_file(monkeypatch, tmp_path):
     voices = tmp_path / "voices.json"
-    voices.write_text(json.dumps({"a": "svc-1"}))
+    voices.write_text(json.dumps({"a": {"elevenlabs": "el-1", "sarvam": "svc-1"}}))
     monkeypatch.setattr(settings, "VOICES_FILE", voices)
-    assert settings.voice_id("a") == "svc-1"
-    assert settings.voice_id("b") is None
+    assert settings.voice_id("a", "elevenlabs") == "el-1"
+    assert settings.voice_id("a", "sarvam") == "svc-1"
+    assert settings.voice_id("b", "elevenlabs") is None
 
 
 def test_missing_voice_is_a_voice_error(monkeypatch, tmp_path):
-    monkeypatch.setattr(voice, "voice_id", lambda person: None)
+    monkeypatch.setattr(voice, "voice_id", lambda person, service: None)
     try:
         voice.speak("hi", "en", "a")
         assert False, "should have failed"

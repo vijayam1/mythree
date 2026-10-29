@@ -24,8 +24,15 @@ def secret(name: str) -> str | None:
     return None
 
 
-def voice_id(person: str) -> str | None:
-    """The cloned voice of person "a" or "b" (made with each person's consent)."""
+def voice_id(person: str, service: str) -> str | None:
+    """The cloned voice of person "a" or "b" at a voice service (made with each person's consent).
+
+    private/voices.json looks like {"a": {"elevenlabs": "...", "sarvam": "..."}, "b": {...}}.
+    """
+    if os.environ.get("MYTHREE_VOICES"):   # online: kept in the host's secret store
+        voices = json.loads(os.environ["MYTHREE_VOICES"]).get(person) or {}
+        return voices.get(service) if isinstance(voices, dict) else None
     if not VOICES_FILE.exists():
         return None
-    return json.loads(VOICES_FILE.read_text()).get(person)
+    voices = json.loads(VOICES_FILE.read_text()).get(person) or {}
+    return voices.get(service) if isinstance(voices, dict) else None

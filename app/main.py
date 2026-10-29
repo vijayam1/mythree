@@ -4,15 +4,19 @@ It serves the home page and Mythree's senses. The ears are here; the
 brain, eyes and voice are added one milestone at a time.
 """
 
+import hmac
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from app import brain, meta, voice
+from app.settings import secret
 from app.telugu import devanagari_to_telugu, language_of
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -21,6 +25,40 @@ LANGUAGES = {"te", "en"}
 PEOPLE = {"a", "b"}  # the two people on the call
 
 app = FastAPI(title="Mythree")
+
+
+@app.middleware("http")
+async def always_fresh(request, call_next):
+    """Browsers must always check for the newest page and code, never use an old copy."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+# Online, Mythree's senses need a passcode (set as the MYTHREE_PASSCODE secret), and each
+# visitor gets a fair number of requests per minute, so strangers can't use up the credits.
+REQUESTS_PER_MINUTE = 40
+recent: dict[str, deque] = defaultdict(deque)
+
+
+@app.middleware("http")
+async def guard(request, call_next):
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    passcode = secret("MYTHREE_PASSCODE")
+    if passcode and not hmac.compare_digest(request.headers.get("x-mythree-passcode", ""), passcode):
+        return JSONResponse({"detail": "Passcode needed · పాస్‌కోడ్ కావాలి"}, status_code=401)
+    visitor = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0]
+    times, now = recent[visitor], time.monotonic()
+    while times and now - times[0] > 60:
+        times.popleft()
+    if len(times) >= REQUESTS_PER_MINUTE:
+        return JSONResponse({"detail": "Too many requests. Please wait a minute. · ఒక నిమిషం ఆగండి."}, status_code=429)
+    times.append(now)
+    return await call_next(request)
+
+
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -28,6 +66,12 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 def home():
     """The page the grandson opens on his laptop."""
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/api/hello")
+def hello():
+    """The page checks here first, so it can ask for the passcode before anyone talks."""
+    return {"ok": True}
 
 
 @app.get("/health")

@@ -79,7 +79,7 @@ def test_meta_trouble_gives_a_friendly_message(monkeypatch):
 def test_open_brain_is_tried_first_then_meta_api(monkeypatch):
     calls = []
 
-    def fake_ask(base, auth, model, messages):
+    def fake_ask(base, auth, model, messages, thinking):
         calls.append(model)
         if model == meta.OPEN_BRAIN_MODEL:
             raise meta.MetaError("Baseten down")

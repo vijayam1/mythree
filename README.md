@@ -17,7 +17,7 @@ Everything in this repository was written during the hackathon, starting on 27 O
 | Ears | Speech → text (the page notices when you pause) | Meta Muse Voice Transcribe |
 | Brain | Translates with respect, warmth and context | Meta **Muse Spark Open** (open weights, on Baseten); Meta Muse Spark 1.3 as automatic backup |
 | Eyes | Reads letters, highlights dates and amounts | Meta Muse Spark + SAM 3.1 (coming) |
-| Voice | Speaks the translation **in the speaker's own voice** (cloned only with consent) | Sarvam voice cloning; the browser's standard voice as backup |
+| Voice | Speaks the translation **in the speaker's own voice** (cloned only with consent) | ElevenLabs (Eleven v4 Turbo); Sarvam voice cloning as automatic backup; the browser's standard voice last |
 
 Nothing is saved: sentences live only in the open page. Keys stay on the server.
 The family's own phrase book and voice IDs live in a private folder that never goes online.

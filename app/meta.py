@@ -55,19 +55,22 @@ def chat(messages: list[dict]) -> str:
     open_key = secret("BASETEN_API_KEY")
     if open_key:
         try:
-            return _ask(OPEN_BRAIN_BASE, f"Api-Key {open_key}", OPEN_BRAIN_MODEL, messages)
+            # Muse Spark Open "thinks" before answering, even at the lowest setting (400–650
+            # thinking words). Translation doesn't need it: with thinking off, the same
+            # translations come in a steady ~1.6 s instead of 1.3–2.7 s (tested 29 Oct).
+            return _ask(OPEN_BRAIN_BASE, f"Api-Key {open_key}", OPEN_BRAIN_MODEL, messages,
+                        {"chat_template_kwargs": {"enable_thinking": False}})
         except MetaError:
             pass  # fall through to the backup brain
-    return _ask(BASE, f"Bearer {api_key()}", BRAIN_MODEL, messages)
+    # Meta's own API: "minimal" thinking gave the same translations in 1–3 s instead of 3–6 s (28 Oct).
+    return _ask(BASE, f"Bearer {api_key()}", BRAIN_MODEL, messages, {"reasoning_effort": "minimal"})
 
 
-def _ask(base: str, auth: str, model: str, messages: list[dict]) -> str:
+def _ask(base: str, auth: str, model: str, messages: list[dict], thinking: dict) -> str:
     try:
         reply = httpx.post(
             f"{base}/chat/completions",
-            # Muse Spark thinks before answering; "minimal" gave the same translations
-            # in about 1–2 s instead of 3–6 s (tested 28 Oct).
-            json={"model": model, "messages": messages, "reasoning_effort": "minimal"},
+            json={"model": model, "messages": messages, **thinking},
             headers={"Authorization": auth, "Accept": "application/json"},
             timeout=20,
         )
