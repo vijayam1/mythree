@@ -44,12 +44,52 @@ def speak(text: str, lang: str, person: str) -> Iterator[bytes]:
 
 
 def _elevenlabs(text: str, lang: str, person: str) -> Iterator[bytes]:
-    key, voice = secret("ELEVENLABS_API_KEY"), voice_id(person, "elevenlabs")
+    return speak_as(text, lang, voice_id(person, "elevenlabs"))
+
+
+def speak_as(text: str, lang: str, voice: str | None) -> Iterator[bytes]:
+    """Say the text in one particular ElevenLabs voice (in calls: the one the speaker recorded in the app)."""
+    key = secret("ELEVENLABS_API_KEY")
     if not key or not voice:
         raise VoiceError("No ElevenLabs key or cloned voice yet")
     return _stream("ElevenLabs", "POST", f"{ELEVENLABS}/text-to-speech/{voice}/stream",
                    headers={"xi-api-key": key}, params={"output_format": "mp3_44100_128"},
                    json={"text": text, "model_id": ELEVENLABS_MODEL, "language_code": lang})
+
+
+# --- Learning a voice in the app ----------------------------------------------
+# Each person records about a minute of themselves talking, after ticking the
+# consent box. ElevenLabs makes a copy of the voice and keeps it; Mythree keeps
+# only its ID, on that person's own phone. They can delete it at any time.
+
+def learn(name: str, wav: bytes) -> str:
+    """Make a copy of someone's voice from their recording. Returns the new voice's ID."""
+    key = secret("ELEVENLABS_API_KEY")
+    if not key:
+        raise VoiceError("No ElevenLabs key")
+    try:
+        reply = httpx.post(f"{ELEVENLABS}/voices/add", headers={"xi-api-key": key}, timeout=60,
+                           data={"name": f"Mythree · {name}"[:100],
+                                 "description": "Recorded in the Mythree app, with the speaker's consent."},
+                           files={"files": ("voice.wav", wav, "audio/wav")})
+    except httpx.HTTPError as e:
+        raise VoiceError(f"Could not reach ElevenLabs: {e.__class__.__name__}") from e
+    if reply.status_code != 200:
+        raise VoiceError(f"ElevenLabs replied {reply.status_code}")
+    return reply.json()["voice_id"]
+
+
+def forget(voice: str):
+    """Delete a voice someone recorded in the app."""
+    key = secret("ELEVENLABS_API_KEY")
+    if not key:
+        raise VoiceError("No ElevenLabs key")
+    try:
+        reply = httpx.delete(f"{ELEVENLABS}/voices/{voice}", headers={"xi-api-key": key}, timeout=30)
+    except httpx.HTTPError as e:
+        raise VoiceError(f"Could not reach ElevenLabs: {e.__class__.__name__}") from e
+    if reply.status_code not in (200, 404):   # 404: already gone
+        raise VoiceError(f"ElevenLabs replied {reply.status_code}")
 
 
 def _sarvam(text: str, lang: str, person: str) -> Iterator[bytes]:

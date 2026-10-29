@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mythree</title>
+  <meta name="theme-color" content="#1f9d6b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Mythree">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+Tammudu+2:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --ink: #26304a; --soft: #6b7287; --bg: #e4f2dc; --card: #ffffff;
+            --leaf: #1f9d6b; --leaf-dark: #0f6b47; --leaf-soft: #e3f6ec; --stop: #d8483b; --stop-dark: #9b2a20; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Baloo Tammudu 2", system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    main { max-width: 480px; min-height: 100dvh; margin: 0 auto; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+    button, input, select { font: inherit; }
+    h1 { font-size: 30px; margin: 0; line-height: 1; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .card { background: var(--card); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    label { font-size: 15px; color: var(--soft); display: flex; flex-direction: column; gap: 4px; }
+    input, select { font-size: 18px; padding: 10px 12px; border-radius: 12px; border: 2px solid #d5e3cf; background: #fff; color: var(--ink); }
+    .big { font-size: 20px; font-weight: 600; padding: 14px; border-radius: 16px; border: 0; color: #fff; background: var(--leaf);
+           box-shadow: 0 4px 0 var(--leaf-dark); cursor: pointer; }
+    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--leaf-dark); }
+    .plain { font-size: 16px; padding: 8px 14px; border-radius: 12px; border: 2px solid #cbe0c1; background: #fff; color: var(--ink); cursor: pointer; }
+    .or { text-align: center; color: var(--soft); margin: 0; }
+    .join { display: flex; gap: 8px; }
+    .join input { flex: 1; min-width: 0; letter-spacing: 4px; text-align: center; font-size: 22px; }
+    .problem { color: var(--stop-dark); min-height: 1.2em; margin: 0; text-align: center; }
+    [hidden] { display: none !important; }
+    .voice-box { background: var(--leaf-soft); border-radius: 14px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .voice-box p { margin: 0; width: 100%; }
+    h2 { font-size: 22px; margin: 0; }
+    .consent { flex-direction: row; align-items: flex-start; gap: 10px; color: var(--ink); font-size: 16px; background: #fff7e0; border-radius: 12px; padding: 10px; }
+    .consent input { width: 24px; height: 24px; flex: none; margin-top: 2px; }
+    #recorder p, .consent span, .voice-box p { line-height: 1.45; }
+    #read-this { margin: 0; padding: 12px 14px; background: #f6f8f4; border-radius: 12px; font-size: 18px; line-height: 1.6; }
+    .rec-row { display: flex; align-items: center; gap: 12px; }
+    .rec-row .big { flex: 1; }
+    #rec.on { background: var(--stop); box-shadow: 0 4px 0 var(--stop-dark); }
+    #rec-time { font-size: 22px; font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
+
+    #call { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+    .status { background: var(--leaf-soft); border-radius: 14px; padding: 10px 14px; text-align: center; }
+    .status strong { font-size: 26px; letter-spacing: 4px; }
+    #talk { flex: 1; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+    #talk li { max-width: 88%; padding: 10px 14px; border-radius: 16px; line-height: 1.4; }
+    #talk li.mine { align-self: flex-end; background: #fff; color: var(--soft); font-size: 16px; }
+    #talk li.theirs { align-self: flex-start; background: var(--leaf); color: #fff; font-size: 21px; }
+    #talk small { display: block; font-size: 13px; opacity: .8; margin-top: 4px; }
+    #mic { align-self: center; width: 96px; height: 96px; border-radius: 50%; border: 0; font-size: 40px; color: #fff; cursor: pointer;
+           background: var(--leaf); box-shadow: 0 5px 0 var(--leaf-dark); }
+    #mic.on { background: var(--stop); box-shadow: 0 5px 0 var(--stop-dark); }
+    #mic-label { text-align: center; margin: -4px 0 0; color: var(--soft); }
+  </style>
+</head>
+<body>
+<main>
+  <div class="bar">
+    <h1>Mythree</h1>
+    <button id="end" class="plain" hidden>End call · ముగించు</button>
+  </div>
+
+  <!-- 1. Who am I? Then start a call, or join one with its code. -->
+  <section id="setup" class="card">
+    <label>I am · నేను
+      <select id="relation">
+        <option value="grandfather">Grandpa · తాతగారు</option>
+        <option value="grandmother">Grandma · అమ్మమ్మ / నానమ్మ</option>
+        <option value="grandson">Grandson · మనవడు</option>
+        <option value="granddaughter">Granddaughter · మనవరాలు</option>
+        <option value="father">Father · నాన్న</option>
+        <option value="mother">Mother · అమ్మ</option>
+        <option value="son">Son · కొడుకు</option>
+        <option value="daughter">Daughter · కూతురు</option>
+        <option value="friend">Friend · స్నేహితుడు</option>
+      </select>
+    </label>
+    <label>My name (optional) · పేరు
+      <input id="name" maxlength="40" autocomplete="given-name">
+    </label>
+    <label>I speak · నా భాష
+      <select id="lang">
+        <option value="te">తెలుగు · Telugu</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+    <div class="voice-box">
+      <p id="voice-state"></p>
+      <button id="record-open" class="plain">Record my voice · నా గొంతు రికార్డ్ చేయండి</button>
+      <button id="voice-hello" class="plain" hidden>Hear it · వినండి</button>
+      <button id="voice-delete" class="plain" hidden>Delete it · తొలగించండి</button>
+    </div>
+    <button id="start-call" class="big">Start a call · కాల్ మొదలుపెట్టండి</button>
+    <p class="or">or · లేదా</p>
+    <div class="join">
+      <input id="code" inputmode="numeric" maxlength="4" placeholder="1234" aria-label="Call code">
+      <button id="join-call" class="big">Join · చేరండి</button>
+    </div>
+    <p id="problem" class="problem" role="alert"></p>
+  </section>
+
+  <!-- 1b. My own voice: consent first, then about a minute of reading aloud. -->
+  <section id="recorder" class="card" hidden>
+    <h2>Record my voice · నా గొంతు</h2>
+    <label class="consent"><input type="checkbox" id="consent">
+      <span>I agree that Mythree makes a copy of my voice, only to speak my own words, translated, to the people I call. I can delete it at any time.<br>
+      నా మాటలను అనువదించి, నేను మాట్లాడే వాళ్ళకు నా గొంతులోనే వినిపించడానికి మాత్రమే మైత్రి నా గొంతును నేర్చుకోవడానికి నేను అంగీకరిస్తున్నాను. ఎప్పుడైనా దాన్ని తొలగించవచ్చు.</span>
+    </label>
+    <p style="margin:0">Read this aloud, slowly and naturally, in a quiet place (about 1 minute) · నెమ్మదిగా, సహజంగా చదవండి:</p>
+    <blockquote id="read-this"></blockquote>
+    <div class="rec-row">
+      <button id="rec" class="big">● Start recording · మొదలుపెట్టండి</button>
+      <span id="rec-time">0:00</span>
+    </div>
+    <button id="rec-cancel" class="plain">Back · వెనక్కి</button>
+    <p id="rec-problem" class="problem" role="alert"></p>
+  </section>
+
+  <!-- 2. The call: one big button, and the conversation in my language. -->
+  <section id="call" hidden>
+    <div id="status" class="status" aria-live="polite"></div>
+    <ul id="talk" aria-live="polite"></ul>
+    <button id="mic" aria-label="Start talking">🎙️</button>
+    <p id="mic-label">Tap to talk · మాట్లాడటానికి నొక్కండి</p>
+  </section>
+</main>
+<script src="/static/phone.js"></script>
+</body>
+</html>
