@@ -26,6 +26,9 @@ app = modal.App("mythree", image=image)
 @modal.concurrent(max_inputs=50)
 @modal.asgi_app()
 def web():
+    from app import rooms
     from app.main import app as mythree
 
+    # A copy of each call, so calls survive an update or restart (forgotten after a few hours).
+    rooms.store = modal.Dict.from_name("mythree-calls", create_if_missing=True)
     return mythree

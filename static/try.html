@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Try Mythree</title>
+  <meta name="theme-color" content="#1f9d6b">
+  <link rel="icon" type="image/svg+xml" href="/static/mythree-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+Tammudu+2:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Try Mythree: speak your own language, hear yourself speak English. For hackathon visitors. */
+    :root { --ink: #26304a; --soft: #5f6679; --bg: #e4f2dc; --card: #ffffff; --leaf: #1f9d6b; --leaf-dark: #0f6b47;
+            --leaf-soft: #e3f6ec; --stop: #d8483b; --stop-dark: #9b2a20; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Baloo Tammudu 2", system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    main { max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+    h1 { font-size: 30px; margin: 0; line-height: 1.1; }
+    h1 img { height: 1.5em; vertical-align: -0.35em; margin-right: 6px; }
+    .lead { margin: 0; font-size: 19px; line-height: 1.45; }
+    .card { background: var(--card); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    h2 { font-size: 21px; margin: 0; line-height: 1.3; }
+    .consent span, #lines .english, #lines .said { line-height: 1.4; }
+    p { margin: 0; line-height: 1.45; }
+    .soft { color: var(--soft); font-size: 15px; }
+    [hidden] { display: none !important; }
+    button { font: inherit; cursor: pointer; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+             transition: transform .06s, box-shadow .06s; }
+    .big { font-size: 19px; font-weight: 700; padding: 13px; border-radius: 16px; border: 0; color: #fff;
+           background: linear-gradient(#34c088, var(--leaf) 55%, #188a5c); text-shadow: 0 1px 1px rgba(0,0,0,.25);
+           box-shadow: inset 0 2px 0 rgba(255,255,255,.35), 0 6px 0 var(--leaf-dark), 0 9px 14px rgba(0,0,0,.22); }
+    .big:active { transform: translateY(5px); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 1px 0 var(--leaf-dark); }
+    .big.on { background: linear-gradient(#f07a6e, var(--stop) 55%, #b73a2e); box-shadow: inset 0 2px 0 rgba(255,255,255,.3), 0 6px 0 var(--stop-dark); }
+    .plain { font-size: 16px; font-weight: 700; padding: 9px 14px; border-radius: 12px; border: 0; color: var(--leaf-dark);
+             background: linear-gradient(#ffffff, var(--leaf-soft)); box-shadow: inset 0 1px 0 #fff, 0 4px 0 #b4c8aa; }
+    .plain:active { transform: translateY(3px); box-shadow: 0 1px 0 #b4c8aa; }
+    .consent { display: flex; gap: 10px; align-items: flex-start; background: #fff7e0; border-radius: 12px; padding: 10px; font-size: 16px; }
+    .consent input { width: 24px; height: 24px; flex: none; margin-top: 2px; accent-color: var(--leaf); }
+    .row { display: flex; align-items: center; gap: 12px; }
+    .row .big { flex: 1; }
+    .time { font-size: 22px; font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
+    #mic { align-self: center; width: 130px; height: 130px; border-radius: 50%; border: 0; font-size: 50px; color: #fff;
+           background: radial-gradient(circle at 50% 30%, #4fd59c, var(--leaf) 60%, #168257);
+           box-shadow: inset 0 3px 0 rgba(255,255,255,.35), 0 9px 0 var(--leaf-dark), 0 13px 20px rgba(0,0,0,.25); }
+    #mic:active { transform: translateY(7px); box-shadow: 0 2px 0 var(--leaf-dark); }
+    #mic.on { background: radial-gradient(circle at 50% 30%, #f07a6e, var(--stop) 60%, #b73a2e);
+              box-shadow: inset 0 3px 0 rgba(255,255,255,.3), 0 9px 0 var(--stop-dark), 0 13px 20px rgba(0,0,0,.25); }
+    #mic-label { text-align: center; font-size: 18px; }
+    .lang { display: flex; flex-direction: column; gap: 6px; font-size: 16px; font-weight: 600; }
+    .lang select { font: inherit; font-size: 19px; padding: 10px 12px; border-radius: 10px; border: 2px solid #7f9a86;
+                   background: #fbfdf9; box-shadow: inset 0 3px 5px rgba(0,0,0,.12); color: var(--ink); }
+    #lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+    #lines li { background: var(--leaf-soft); border-radius: 14px; padding: 10px 12px; }
+    #lines .said { color: var(--soft); font-size: 16px; }
+    #lines .english { font-size: 21px; font-weight: 600; margin-top: 2px; }
+    #lines .replay { float: right; margin: 0 0 4px 10px; width: 44px; height: 44px; border-radius: 50%; border: 0; font-size: 20px;
+                     background: linear-gradient(#ffffff, var(--leaf-soft)); box-shadow: inset 0 1px 0 #fff, 0 4px 0 var(--leaf-dark); }
+    .problem { color: var(--stop-dark); min-height: 1.2em; }
+    .num { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--leaf); color: #fff;
+           font-size: 19px; margin-right: 8px; vertical-align: 2px; }
+    .tips, .steps-list { margin: 0; padding-left: 22px; line-height: 1.45; display: flex; flex-direction: column; gap: 4px; font-size: 16px; }
+    .bar { height: 12px; border-radius: 6px; background: #e8efe4; overflow: hidden; }
+    #rec-bar { height: 100%; width: 0; background: linear-gradient(90deg, #34c088, var(--leaf)); transition: width .2s; }
+    .help summary { cursor: pointer; color: var(--leaf-dark); font-weight: 600; }
+    .help p { margin: 6px 0 0; font-size: 15px; }
+    .note { font-size: 15px; background: var(--leaf-soft); border-radius: 12px; padding: 8px 12px; line-height: 1.45; }
+    .ready { font-size: 18px; font-weight: 600; color: var(--leaf-dark); }
+    #passage { margin: 0; padding: 12px 14px; background: #fff7e0; border-radius: 12px; font-size: 19px; line-height: 1.6; }
+    #lines .status { color: var(--leaf-dark); font-size: 15px; margin-top: 4px; }
+    footer { text-align: center; color: var(--soft); font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+<main>
+  <h1><img src="/static/mythree-logo.svg" alt="">Try Mythree</h1>
+  <p class="lead">Speak in <b>your own language</b>, and in a few seconds hear <b>yourself</b> speak English, beautifully, in <b>your own voice</b>.</p>
+  <p class="soft">It takes about 2 minutes. Use a phone or computer with a microphone, in Chrome or Safari, somewhere quiet.</p>
+
+  <!-- Step 1: lend Mythree your voice for an hour (or skip and hear a standard voice) -->
+  <section id="step-voice" class="card">
+    <h2><span class="num">1</span> Lend Mythree your voice</h2>
+    <p>Mythree listens to you for <b>20 seconds</b> and learns how you sound. Then it can speak English <b>as you</b>.</p>
+    <p class="note">This is a hackathon test: Mythree can keep <b>up to 10 voices at a time</b>. If they're all in use by other visitors, you'll hear a standard voice instead, and everything else works the same. Please tap "Done" when you finish, so the next person can have your place.</p>
+    <label class="lang">Your language
+      <select id="language">
+        <option value="pick">Choose your language…</option>
+        <option value="Telugu">తెలుగు · Telugu</option>
+        <option value="Hindi">हिन्दी · Hindi</option>
+        <option value="Kannada">ಕನ್ನಡ · Kannada</option>
+        <option value="Tamil">தமிழ் · Tamil</option>
+        <option value="Malayalam">മലയാളം · Malayalam</option>
+        <option value="Bengali">বাংলা · Bengali</option>
+        <option value="Marathi">मराठी · Marathi</option>
+        <option value="Gujarati">ગુજરાતી · Gujarati</option>
+        <option value="Punjabi">ਪੰਜਾਬੀ · Punjabi</option>
+        <option value="Urdu">اردو · Urdu</option>
+        <option value="Spanish">Español · Spanish</option>
+        <option value="French">Français · French</option>
+        <option value="German">Deutsch · German</option>
+        <option value="Portuguese">Português · Portuguese</option>
+        <option value="Italian">Italiano · Italian</option>
+        <option value="Arabic">العربية · Arabic</option>
+        <option value="Chinese">中文 · Chinese</option>
+        <option value="Japanese">日本語 · Japanese</option>
+        <option value="Korean">한국어 · Korean</option>
+        <option value="Russian">Русский · Russian</option>
+        <option value="Indonesian">Bahasa Indonesia</option>
+        <option value="Vietnamese">Tiếng Việt · Vietnamese</option>
+        <option value="Turkish">Türkçe · Turkish</option>
+        <option value="Thai">ไทย · Thai</option>
+        <option value="English">English</option>
+        <option value="">Another language: I'll talk freely</option>
+      </select>
+    </label>
+    <div id="passage-box" class="passage-box" hidden>
+      <p class="soft">When you tap <b>Start</b>, read this aloud, warmly, like you're talking to a friend. Mythree stops by itself after 20 seconds.</p>
+      <blockquote id="passage"></blockquote>
+    </div>
+    <label class="consent"><input type="checkbox" id="consent">
+      <span>I agree that Mythree makes a copy of my voice, only to speak my words in English on this page. It is deleted when I tap "Done", when I close the page, or after one hour at the latest.</span>
+    </label>
+    <div class="row">
+      <button id="rec" class="big">● Start reading</button>
+      <span id="rec-time" class="time">0:20</span>
+    </div>
+    <div class="bar" aria-hidden="true"><div id="rec-bar"></div></div>
+    <p id="voice-problem" class="problem" role="alert"></p>
+    <button id="skip" class="plain">No thanks, use a standard voice</button>
+    <details id="mic-help" class="help">
+      <summary>The microphone doesn't work?</summary>
+      <p><b>iPhone:</b> when Safari asks "Allow microphone?", tap <b>Allow</b>. If you said no before: Settings → Safari → Microphone → Allow, then reload the page.</p>
+      <p><b>Android or computer (Chrome):</b> tap the small icon left of the web address → Microphone → Allow, then reload.</p>
+    </details>
+  </section>
+
+  <!-- Step 2: talk, and hear it back in English -->
+  <section id="step-talk" class="card" hidden>
+    <h2><span class="num">2</span> Speak, and hear yourself in English</h2>
+    <p id="voice-note" class="ready"></p>
+    <p id="lang-note" class="soft"></p>
+    <ol class="steps-list">
+      <li>Tap the <b>green button</b> once. It turns <b>red</b>: Mythree is listening.</li>
+      <li>Say <b>one or two sentences</b> in your language.</li>
+      <li>Tap the <b>red button</b> when you're done.</li>
+      <li>In a few seconds you'll <b>read</b> it in English and <b>hear yourself</b> say it. Tap 🔁 to hear it again.</li>
+    </ol>
+    <p class="soft">Ideas: tell your mother you miss her. Say a proverb from your language. Describe your favourite food. Say what you're building at the hackathon.</p>
+    <button id="mic" aria-label="Start talking">🎙️</button>
+    <p id="mic-label">Tap to start talking</p>
+    <p id="talk-problem" class="problem" role="alert"></p>
+    <ol id="lines" aria-live="polite"></ol>
+  </section>
+
+  <!-- Step 3: done -->
+  <section id="step-done" class="card" hidden>
+    <h2><span class="num">3</span> When you're done</h2>
+    <p>Tap below to delete the copy of your voice right away. Closing the page deletes it too.</p>
+    <button id="forget" class="big">Done: delete my voice</button>
+    <p class="soft">Mythree was made so that a grandfather in India who speaks only Telugu and a grandson in Dallas who speaks only English can finally talk, each hearing the other in their own voice. Thank you for trying it!</p>
+  </section>
+
+  <footer>Mythree: Meta's Muse Voice Transcribe hears you, Muse Spark Open translates, ElevenLabs speaks.<br>
+    Built for the Meta Global AI Developer Hackathon · Nothing you say is saved.</footer>
+</main>
+<script src="/static/passages.js"></script>
+<script src="/static/try.js"></script>
+</body>
+</html>

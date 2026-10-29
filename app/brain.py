@@ -81,7 +81,9 @@ def translate(text: str, lang: str, to: str, speaker: str, listener: str, histor
         messages.append({"role": "user", "content": "Earlier in the call:\n" + earlier})
         messages.append({"role": "assistant", "content": "Understood."})
     messages.append({"role": "user", "content":
-                     f"{speaker} ({LANGUAGE_NAMES[lang]}) says: {text}\n\n"
+                     f"{speaker} ({LANGUAGE_NAMES[lang]}) says: {text}\n"
+                     f"(Speech recognition wrote this down and sometimes uses the wrong letters, for example "
+                     f"English letters for spoken Telugu. Read it as spoken {LANGUAGE_NAMES[lang]}.)\n\n"
                      f"Translate into {LANGUAGE_NAMES[to]}, for {listener}."})
     return clean(meta.chat(messages))
 
@@ -90,3 +92,14 @@ def clean(answer: str) -> str:
     """Remove quotes or a label the model sometimes adds around the translation."""
     answer = re.sub(r"^(Translation|అనువాదం)\s*:\s*", "", answer.strip(), flags=re.I)
     return answer.strip().strip('"“”').strip()
+
+
+TO_ENGLISH = """You are Mythree, a live interpreter. Someone just spoke, in any language.
+Translate what they said into plain, natural, warm spoken English, the way they would say it themselves.
+Keep the meaning, the questions and the feeling; don't add or drop anything. If it is already English,
+return it with only small speech-recognition slips fixed. Reply with the English only: no notes, no quotes."""
+
+
+def to_english(text: str) -> str:
+    """For the Try page: anything anyone says, in any language, into English."""
+    return clean(meta.chat([{"role": "system", "content": TO_ENGLISH}, {"role": "user", "content": text}]))

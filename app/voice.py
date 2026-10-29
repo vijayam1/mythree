@@ -52,9 +52,13 @@ def speak_as(text: str, lang: str, voice: str | None) -> Iterator[bytes]:
     key = secret("ELEVENLABS_API_KEY")
     if not key or not voice:
         raise VoiceError("No ElevenLabs key or cloned voice yet")
+    request = {"text": text, "model_id": ELEVENLABS_MODEL, "language_code": lang}
+    if lang == "en":   # Vijaya chose sample "J" (29 Oct): her own voice, a steady American accent, a little slower.
+        # Without it the English drifted into a British accent; American grandchildren prefer American English.
+        request["text"] = "[American accent] " + text   # a stage direction for the model, not spoken aloud
+        request["voice_settings"] = {"stability": 0.75, "similarity_boost": 0.9, "speed": 0.92}
     return _stream("ElevenLabs", "POST", f"{ELEVENLABS}/text-to-speech/{voice}/stream",
-                   headers={"xi-api-key": key}, params={"output_format": "mp3_44100_128"},
-                   json={"text": text, "model_id": ELEVENLABS_MODEL, "language_code": lang})
+                   headers={"xi-api-key": key}, params={"output_format": "mp3_44100_128"}, json=request)
 
 
 # --- Learning a voice in the app ----------------------------------------------
@@ -77,6 +81,24 @@ def learn(name: str, wav: bytes) -> str:
     if reply.status_code != 200:
         raise VoiceError(f"ElevenLabs replied {reply.status_code}")
     return reply.json()["voice_id"]
+
+
+TRY_NAME = "Mythree · Try visitor"
+
+
+def try_voices() -> dict[str, float]:
+    """The Try page's visitor voices still kept at ElevenLabs: {voice ID: when it was made (Unix time)}."""
+    key = secret("ELEVENLABS_API_KEY")
+    if not key:
+        raise VoiceError("No ElevenLabs key")
+    try:
+        reply = httpx.get(f"{ELEVENLABS}/voices", headers={"xi-api-key": key}, timeout=30)
+    except httpx.HTTPError as e:
+        raise VoiceError(f"Could not reach ElevenLabs: {e.__class__.__name__}") from e
+    if reply.status_code != 200:
+        raise VoiceError(f"ElevenLabs replied {reply.status_code}")
+    return {v["voice_id"]: v.get("created_at_unix") or 0 for v in reply.json().get("voices", [])
+            if v.get("name") == TRY_NAME}
 
 
 def forget(voice: str):

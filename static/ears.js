@@ -225,11 +225,12 @@ function stop(why) {
 }
 
 function showButton(on) {
-  const words = on ? "Stop listening" : "Start listening";
   ui.start.classList.toggle("on", on);
   ui.start.textContent = on ? "⏹" : "🎙️";
-  ui.start.setAttribute("aria-label", words);
-  document.getElementById("start-label").textContent = words;
+  ui.start.setAttribute("aria-label", on ? "Stop listening" : "Start listening");
+  document.getElementById("start-label").textContent = on
+    ? "Red: talk now. Pause after each sentence. Tap red to stop · ఎరుపు: ఇప్పుడు మాట్లాడండి. ఆపాలంటే ఎరుపు బటన్ నొక్కండి"
+    : "Green: tap to talk · గ్రీన్ బటన్ నొక్కి మాట్లాడండి";
 }
 
 // --- Finding sentences ------------------------------------------------------
@@ -281,7 +282,7 @@ function newBubble(who) {
   line.dataset.side = who;  // the first person's bubbles on the left, the second's on the right
   line.textContent = "…";
   ui.heard.append(line);
-  line.scrollIntoView({ behavior: "smooth", block: "end" });
+  ui.heard.scrollTop = ui.heard.scrollHeight;   // the conversation scrolls in its own box: show the newest line
   return line;
 }
 
@@ -387,9 +388,11 @@ async function sayNow(out, text, lang, person, mine = session) {  // in the voic
     });
     if (!reply.ok) throw new Error("no own voice");
     tag.textContent = "translated voice · own voice";
-    await playStream(reply);
+    const sound = await playStream(reply);
+    addReplay(out, () => play(new Audio(sound)));
   } catch {
     tag.textContent = "standard voice";
+    addReplay(out, () => standardVoice(text, lang));
     await standardVoice(text, lang);
   } finally {
     muted = false;
@@ -415,26 +418,49 @@ function play(audio) {
   });
 }
 
+// 🔁 Hear a translation again. The sound is kept in the page, so a replay is instant and costs nothing.
+function addReplay(out, again) {
+  const button = document.createElement("button");
+  button.className = "replay";
+  button.type = "button";
+  button.textContent = "🔁";
+  button.setAttribute("aria-label", "Hear it again · మళ్ళీ వినండి");
+  button.addEventListener("click", () => {
+    queue = queue.then(async () => {   // after anything already playing; Mythree doesn't hear it
+      muted = true;
+      speakingFor = session;
+      try { await again(); } finally { muted = false; }
+    });
+  });
+  out.prepend(button);
+}
+
 // Start playing as soon as the first piece of sound arrives (where the browser can).
+// Gives back the whole sound, so it can be played again.
 async function playStream(reply) {
   if (!window.MediaSource || !MediaSource.isTypeSupported("audio/mpeg")) {
-    return play(new Audio(URL.createObjectURL(await reply.blob())));
+    const sound = URL.createObjectURL(await reply.blob());
+    await play(new Audio(sound));
+    return sound;
   }
   const source = new MediaSource();
   const audio = new Audio(URL.createObjectURL(source));
   await new Promise((open) => source.addEventListener("sourceopen", open, { once: true }));
   const buffer = source.addSourceBuffer("audio/mpeg");
   const reader = reply.body.getReader();
+  const pieces = [];
   let started = null;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    pieces.push(value);
     buffer.appendBuffer(value);
     await new Promise((ok) => buffer.addEventListener("updateend", ok, { once: true }));
     started ??= play(audio);
   }
   source.endOfStream();
   await (started ?? play(audio));
+  return URL.createObjectURL(new Blob(pieces, { type: "audio/mpeg" }));
 }
 
 // The browser's own voice, used only if the own voice can't be made.

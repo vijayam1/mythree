@@ -29,9 +29,14 @@ def api_key():
     return key
 
 
-def transcribe(wav: bytes) -> str:
-    """Ears: send one spoken sentence (a plain WAV file) and get the words back."""
+def transcribe(wav: bytes, languages: list[str] | None = None) -> str:
+    """Ears: send one spoken sentence (a plain WAV file) and get the words back.
+
+    `languages` (["Telugu"], or ["Telugu", "English"]) tells the ears what to expect; without it
+    they guess, and sometimes write Telugu in Gujarati, Urdu or English letters."""
     request = {"model": EARS_MODEL, "audioEncoding": "WAV", "mode": "PUSH_TO_TALK"}
+    if languages:
+        request["languageBias"] = languages
     files = {
         "request": (None, json.dumps(request), "application/json"),
         "audio": ("sentence.wav", wav, "audio/wav"),

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mythree</title>
+  <link rel="icon" type="image/svg+xml" href="/static/mythree-logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+Tammudu+2:wght@400;600;700&display=swap" rel="stylesheet">
@@ -21,6 +22,7 @@
 
     /* Top bar: name on the left, Refresh on the right */
     .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 8px; border-bottom: 2px solid #cbe0c1; }
+    h1 .logo { height: 1.5em; width: auto; vertical-align: -0.35em; margin-right: 6px; }
     h1 { font-size: 34px; line-height: 1; margin: 6px 0 0; letter-spacing: .5px; }
     #refresh { font-size: 16px; font-weight: 600; padding: 8px 18px; border-radius: 12px; border: 0; background: var(--leaf); color: #fff;
                box-shadow: 0 4px 0 var(--leaf-dark); transition: transform .1s, box-shadow .1s; }
@@ -95,6 +97,9 @@
     li[data-side="b"] .translation { color: var(--gs-dark); }
     .translation.thinking, #heard li.thinking { color: var(--soft); font-weight: 400; font-size: 17px; }
     .translation.error, #heard li.error { color: #8a1f1f; font-weight: 400; font-size: 16px; }
+    .translation .replay { float: right; margin: 0 0 4px 10px; width: 40px; height: 40px; border-radius: 50%; border: 0; font-size: 19px;
+                           background: linear-gradient(#ffffff, var(--leaf-soft)); box-shadow: inset 0 1px 0 #fff, 0 4px 0 var(--leaf-dark); }
+    .translation .replay:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--leaf-dark); }
     .voice-tag { display: block; margin-top: 4px; font-size: 13px; font-weight: 400; color: var(--soft); }
     .voice-tag::before { content: "🔊 "; }
     @keyframes pop { from { transform: scale(.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -158,6 +163,30 @@
     @keyframes wave { from { transform: rotate(0); } to { transform: rotate(-35deg); } }
     @keyframes float { from { transform: translateY(3px); } to { transform: translateY(-4px); } }
 
+
+    /* --- Same look as the phone app: green raised buttons, box fields, a scrolling conversation --- */
+    /* Pressing hard on a Mac trackpad opened Apple's "Look Up" box: button words can't be selected. */
+    button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; transition: transform .06s, box-shadow .06s; }
+    #refresh, #typing button, .settings button, .settings button[aria-pressed="false"], .settings button[id="type-btn"][aria-pressed="true"] {
+      font-weight: 700; border: 0; color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.25);
+      background: linear-gradient(#34c088, var(--leaf) 55%, #188a5c);
+      box-shadow: inset 0 2px 0 rgba(255,255,255,.35), 0 4px 0 var(--leaf-dark), 0 6px 10px rgba(0,0,0,.2); }
+    .settings button { border-radius: 12px; padding: 7px 14px; }
+    .settings button[aria-pressed="false"] { filter: saturate(.45) brightness(.95); }   /* off: a paler green */
+    #refresh:active, #typing button:active, .settings button:active {
+      transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 1px 0 var(--leaf-dark), 0 2px 3px rgba(0,0,0,.15); }
+    #start { background: radial-gradient(circle at 50% 30%, #4fd59c, var(--leaf) 60%, #168257);
+             box-shadow: inset 0 3px 0 rgba(255,255,255,.35), 0 8px 0 var(--leaf-dark), 0 12px 18px rgba(0,0,0,.25); }
+    #start:active { transform: translateY(6px); box-shadow: inset 0 3px 0 rgba(255,255,255,.25), 0 2px 0 var(--leaf-dark), 0 3px 5px rgba(0,0,0,.2); }
+    #start.on { background: radial-gradient(circle at 50% 30%, #f07a6e, #e5484d 60%, #b73a2e);
+                box-shadow: inset 0 3px 0 rgba(255,255,255,.3), 0 8px 0 #a3262b, 0 12px 18px rgba(0,0,0,.25); }
+    #start-label { max-width: 420px; margin: 10px auto 0; line-height: 1.45; }
+    .fields select, .fields input, #typing input {
+      font-size: 16px; padding: 8px 10px; border-radius: 10px; border: 2px solid #7f9a86; background: #fbfdf9;
+      box-shadow: inset 0 3px 5px rgba(0,0,0,.12); }
+    .fields select:focus, .fields input:focus, #typing input:focus { outline: none; border-color: var(--leaf); box-shadow: inset 0 3px 5px rgba(0,0,0,.1), 0 0 0 3px #bfe9d3; }
+    #heard { max-height: 55vh; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+
     @media (max-width: 560px) {
       .people { grid-template-columns: 1fr; gap: 18px; }
       h1 { font-size: 38px; }
@@ -169,17 +198,25 @@
 <body data-mood="sleeping">
   <main>
     <header class="topbar">
-      <h1>Mythree</h1>
+      <h1><img class="logo" src="/static/mythree-logo.svg" alt="">Mythree</h1>
       <button id="refresh" title="Clear the conversation and start again">🔄 Refresh</button>
     </header>
     <div class="stage" id="nest" aria-hidden="true"></div>
       <div id="buddy" aria-hidden="true">
         <svg class="mascot" viewBox="0 0 200 190">
-          <defs>
-            <linearGradient id="ko-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a5c96"/><stop offset=".55" stop-color="#2b3765"/><stop offset="1" stop-color="#1b2344"/></linearGradient>
-            <linearGradient id="ko-head" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a6db0"/><stop offset="1" stop-color="#2a3666"/></linearGradient>
-            <linearGradient id="ko-wing" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b4b85"/><stop offset="1" stop-color="#18203f"/></linearGradient>
-            <linearGradient id="ko-tail" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b3765"/><stop offset="1" stop-color="#151b36"/></linearGradient>
+          <defs>   <!-- Mythree: a koel's shape and red eye, a parrot's green body, a peacock's crest and long train -->
+            <linearGradient id="ko-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fe86a"/><stop offset=".5" stop-color="#22b14c"/><stop offset="1" stop-color="#0f8a5f"/></linearGradient>
+            <linearGradient id="ko-head" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2bd4ff"/><stop offset=".6" stop-color="#1565c0"/><stop offset="1" stop-color="#4b2fa8"/></linearGradient>
+            <linearGradient id="ko-wing" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1fd1a5"/><stop offset=".6" stop-color="#139a74"/><stop offset="1" stop-color="#1565c0"/></linearGradient>
+            <linearGradient id="ko-plume" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1fae6a"/><stop offset=".7" stop-color="#7fbf3a"/><stop offset="1" stop-color="#c9a227"/></linearGradient>
+            <g id="ko-feather">   <!-- one long peacock feather, hanging straight down from the bird's back -->
+              <path d="M94 146 L94 236" stroke="#a8862a" stroke-width="1.6" stroke-linecap="round"/>
+              <path d="M94 150 Q80 196 94 242 Q108 196 94 150 Z" fill="url(#ko-plume)" opacity=".92"/>
+              <ellipse cx="94" cy="226" rx="9.5" ry="12" fill="#e8c547"/>
+              <ellipse cx="94" cy="226.8" rx="7.6" ry="9.6" fill="#22c39a"/>
+              <ellipse cx="94" cy="227.6" rx="5.4" ry="6.8" fill="#1e88e5"/>
+              <ellipse cx="94" cy="228.4" rx="3" ry="3.8" fill="#0b1d5e"/>
+            </g>
           </defs>
           <ellipse cx="102" cy="184" rx="34" ry="4" fill="#26304a" opacity=".07"/>
           <g class="perch">
@@ -187,29 +224,43 @@
             <path d="M150 166 q12 -15 25 -10 q-8 12 -25 10z" fill="#5cb85c"/><path d="M70 164 q-10 -12 -22 -8 q8 11 22 8z" fill="#6cc76a"/>
           </g>
           <g class="bird">
-            <g class="tail">
-              <path d="M86 140 Q70 166 50 190 Q60 189 68 182 Q82 164 94 147 Z" fill="url(#ko-tail)"/>
-              <path d="M92 146 Q82 170 72 192 Q81 187 86 178 Q96 160 99 150 Z" fill="url(#ko-tail)"/>
-              <path d="M66 172 l5 -4 M75 162 l5 -4" stroke="#7d8fd0" stroke-width="1.8" stroke-linecap="round" opacity=".55"/>
+            <g class="tail">   <!-- the peacock's train, closed: long feathers lying together behind her -->
+              <use href="#ko-feather" transform="rotate(27 94 146) translate(94 146) scale(1 1.18) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(36 94 146) translate(94 146) scale(1 1.2) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(30 94 146) translate(94 146) scale(1 1.08) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(40 94 146) translate(94 146) scale(1 1.0) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(32 94 146) translate(94 146) scale(1 0.86) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(42 94 146) translate(94 146) scale(1 0.78) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(36 94 146) translate(94 146) scale(1 0.62) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(46 94 146) translate(94 146) scale(1 0.55) translate(-94 -146)"/>
             </g>
-            <g class="wing-back"><ellipse cx="90" cy="110" rx="11" ry="34" fill="#1b2344" transform="rotate(22 90 110)"/></g>
+            <g class="wing-back"><ellipse cx="90" cy="110" rx="11" ry="34" fill="#1565c0" transform="rotate(22 90 110)"/></g>
             <ellipse cx="102" cy="110" rx="23" ry="46" fill="url(#ko-body)" transform="rotate(-18 102 110)"/>
-            <ellipse cx="108" cy="118" rx="10" ry="30" fill="#5d70ad" opacity=".4" transform="rotate(-18 108 118)"/>
+            <ellipse cx="108" cy="118" rx="10" ry="30" fill="#ffe066" opacity=".6" transform="rotate(-18 108 118)"/>
+            <path d="M104 74 Q120 78 126 94 Q114 92 104 84 Z" fill="#1e88e5" opacity=".85"/>   <!-- a peacock-blue neck -->
             <g class="feet" stroke="#8d93a3" stroke-width="4" fill="none" stroke-linecap="round">
               <path d="M104 152 q-2 7 -7 9 M104 152 q2 8 5 10"/><path d="M114 148 q-2 7 -7 9 M114 148 q2 8 5 10"/>
             </g>
             <g class="wing-front">
               <path d="M104 80 Q86 92 86 126 Q88 150 96 166 Q106 138 110 108 Q112 88 104 80 Z" fill="url(#ko-wing)"/>
-              <path d="M92 112 q7 3 12 1 M91 126 q7 3 13 1 M93 140 q5 2 10 1" stroke="#7d8fd0" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".55"/>
+              <path d="M104 82 Q93 90 92 104 Q101 100 108 94 Q109 86 104 82 Z" fill="#ffcf33"/>   <!-- a parrot's yellow-red shoulder -->
+              <path d="M95 98 Q101 96 107 92" stroke="#f0583c" stroke-width="3" fill="none" stroke-linecap="round"/>
+              <path d="M92 116 q7 3 12 1 M91 130 q7 3 13 1 M93 144 q5 2 10 1" stroke="#c6fff0" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".7"/>
             </g>
             <g class="head">
+              <g stroke="#1565c0" stroke-width="1.6" stroke-linecap="round">   <!-- the peacock's crest -->
+                <path d="M112 40 L104 21"/><path d="M115 39 L112 17"/><path d="M118 40 L121 20"/>
+              </g>
+              <circle cx="104" cy="20" r="3.4" fill="#22c39a" stroke="#1e88e5" stroke-width="1.4"/>
+              <circle cx="112" cy="16" r="3.6" fill="#22c39a" stroke="#1e88e5" stroke-width="1.4"/>
+              <circle cx="121" cy="19" r="3.4" fill="#22c39a" stroke="#1e88e5" stroke-width="1.4"/>
               <ellipse cx="116" cy="58" rx="22" ry="20" fill="url(#ko-head)"/>
-              <path d="M110 39 q3 -8 9 -4 q3 -6 7 0" stroke="#4a5c96" stroke-width="4" fill="none" stroke-linecap="round"/>
-              <path d="M104 47 q6 -4 13 -3" stroke="#9fb1f0" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".6"/>
-              <g class="pupil"><circle cx="123.5" cy="54" r="6.8" fill="#e0182d" stroke="#7a0a16" stroke-width="1.2"/><circle cx="124.3" cy="54" r="2.6" fill="#1b1b2b"/><circle cx="126" cy="51.4" r="1.5" fill="#fff"/></g>
-              <path class="lid" d="M116 55 Q123.5 60 131 55" stroke="#c9d1f5" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-              <path class="beak-low" d="M135 63 Q149 64 157 63 Q148 68 136 67 Z" fill="#e4e6ea" stroke="#6f7686" stroke-width="1"/>
-              <path d="M134 53 Q149 56 162 61 Q150 64 136 64 Q131 59 134 53 Z" fill="#ffffff" stroke="#6f7686" stroke-width="1.2"/>
+              <path d="M104 47 q6 -4 13 -3" stroke="#bff3ff" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7"/>
+              <ellipse cx="124" cy="55" rx="9.5" ry="8.5" fill="#ffffff"/>   <!-- a parrot's white face patch -->
+              <g class="pupil"><circle cx="123.5" cy="54" r="6.4" fill="#e0182d" stroke="#7a0a16" stroke-width="1.2"/><circle cx="124.3" cy="54" r="2.6" fill="#1b1b2b"/><circle cx="126" cy="51.4" r="1.5" fill="#fff"/></g>
+              <path class="lid" d="M116 55 Q123.5 60 131 55" stroke="#1565c0" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+              <path class="beak-low" d="M135 63 Q149 64 157 63 Q148 67.5 136 67 Z" fill="#e0a12e" stroke="#9a6a12" stroke-width=".8"/>
+              <path d="M134 54 Q150 56.5 162 61.5 Q150 63.5 136 63.5 Q131.5 59 134 54 Z" fill="#f6c453" stroke="#9a6a12" stroke-width="1"/>   <!-- a sleek, slim beak -->
             </g>
           </g>
           <g class="zz" fill="#7f77dd" font-size="20" font-family="sans-serif"><text x="146" y="30">z</text><text x="162" y="16" font-size="14">z</text></g>
@@ -246,7 +297,7 @@
 
     <div class="controls">
       <button id="start" aria-label="Start listening">🎙️</button>
-      <span id="start-label">Start listening</span>
+      <span id="start-label">Green: tap to talk · గ్రీన్ బటన్ నొక్కి మాట్లాడండి</span>
       <div class="settings" role="group" aria-label="Settings">
         <button id="voice-btn" type="button" aria-pressed="true">🔊 Voice on</button>
         <button id="motion-btn" type="button" aria-pressed="true">🕊️ Animation on</button>

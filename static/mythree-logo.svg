@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-14 6 178 272">
+  <!-- Mythree's logo: the same bird as on the page (koel, parrot and peacock), without her perch -->
+          <defs>   <!-- Mythree: a koel's shape and red eye, a parrot's green body, a peacock's crest and long train -->
+            <linearGradient id="ko-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fe86a"/><stop offset=".5" stop-color="#22b14c"/><stop offset="1" stop-color="#0f8a5f"/></linearGradient>
+            <linearGradient id="ko-head" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2bd4ff"/><stop offset=".6" stop-color="#1565c0"/><stop offset="1" stop-color="#4b2fa8"/></linearGradient>
+            <linearGradient id="ko-wing" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1fd1a5"/><stop offset=".6" stop-color="#139a74"/><stop offset="1" stop-color="#1565c0"/></linearGradient>
+            <linearGradient id="ko-plume" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1fae6a"/><stop offset=".7" stop-color="#7fbf3a"/><stop offset="1" stop-color="#c9a227"/></linearGradient>
+            <g id="ko-feather">   <!-- one long peacock feather, hanging straight down from the bird's back -->
+              <path d="M94 146 L94 236" stroke="#a8862a" stroke-width="1.6" stroke-linecap="round"/>
+              <path d="M94 150 Q80 196 94 242 Q108 196 94 150 Z" fill="url(#ko-plume)" opacity=".92"/>
+              <ellipse cx="94" cy="226" rx="9.5" ry="12" fill="#e8c547"/>
+              <ellipse cx="94" cy="226.8" rx="7.6" ry="9.6" fill="#22c39a"/>
+              <ellipse cx="94" cy="227.6" rx="5.4" ry="6.8" fill="#1e88e5"/>
+              <ellipse cx="94" cy="228.4" rx="3" ry="3.8" fill="#0b1d5e"/>
+            </g>
+          </defs>
+          <g data-part="bird">
+            <g data-part="tail">   <!-- the peacock's train, closed: long feathers lying together behind her -->
+              <use href="#ko-feather" transform="rotate(27 94 146) translate(94 146) scale(1 1.18) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(36 94 146) translate(94 146) scale(1 1.2) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(30 94 146) translate(94 146) scale(1 1.08) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(40 94 146) translate(94 146) scale(1 1.0) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(32 94 146) translate(94 146) scale(1 0.86) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(42 94 146) translate(94 146) scale(1 0.78) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(36 94 146) translate(94 146) scale(1 0.62) translate(-94 -146)"/>
+              <use href="#ko-feather" transform="rotate(46 94 146) translate(94 146) scale(1 0.55) translate(-94 -146)"/>
+            </g>
+            <g data-part="wing-back"><ellipse cx="90" cy="110" rx="11" ry="34" fill="#1565c0" transform="rotate(22 90 110)"/></g>
+            <ellipse cx="102" cy="110" rx="23" ry="46" fill="url(#ko-body)" transform="rotate(-18 102 110)"/>
+            <ellipse cx="108" cy="118" rx="10" ry="30" fill="#ffe066" opacity=".6" transform="rotate(-18 108 118)"/>
+            <path d="M104 74 Q120 78 126 94 Q114 92 104 84 Z" fill="#1e88e5" opacity=".85"/>   <!-- a peacock-blue neck -->
+            <g data-part="feet" stroke="#8d93a3" stroke-width="4" fill="none" stroke-linecap="round">
+              <path d="M104 152 q-2 7 -7 9 M104 152 q2 8 5 10"/><path d="M114 148 q-2 7 -7 9 M114 148 q2 8 5 10"/>
+            </g>
+            <g data-part="wing-front">
+              <path d="M104 80 Q86 92 86 126 Q88 150 96 166 Q106 138 110 108 Q112 88 104 80 Z" fill="url(#ko-wing)"/>
+              <path d="M104 82 Q93 90 92 104 Q101 100 108 94 Q109 86 104 82 Z" fill="#ffcf33"/>   <!-- a parrot's yellow-red shoulder -->
+              <path d="M95 98 Q101 96 107 92" stroke="#f0583c" stroke-width="3" fill="none" stroke-linecap="round"/>
+              <path d="M92 116 q7 3 12 1 M91 130 q7 3 13 1 M93 144 q5 2 10 1" stroke="#c6fff0" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".7"/>
+            </g>
+            <g data-part="head">
+              <g stroke="#1565c0" stroke-width="1.6" stroke-linecap="round">   <!-- the peacock's crest -->
+                <path d="M112 40 L104 21"/><path d="M115 39 L112 17"/><path d="M118 40 L121 20"/>
+              </g>
+              <circle cx="104" cy="20" r="3.4" fill="#22c39a" stroke="#1e88e5" stroke-width="1.4"/>
+              <circle cx="112" cy="16" r="3.6" fill="#22c39a" stroke="#1e88e5" stroke-width="1.4"/>
+              <circle cx="121" cy="19" r="3.4" fill="#22c39a" stroke="#1e88e5" stroke-width="1.4"/>
+              <ellipse cx="116" cy="58" rx="22" ry="20" fill="url(#ko-head)"/>
+              <path d="M104 47 q6 -4 13 -3" stroke="#bff3ff" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7"/>
+              <ellipse cx="124" cy="55" rx="9.5" ry="8.5" fill="#ffffff"/>   <!-- a parrot's white face patch -->
+              <g data-part="pupil"><circle cx="123.5" cy="54" r="6.4" fill="#e0182d" stroke="#7a0a16" stroke-width="1.2"/><circle cx="124.3" cy="54" r="2.6" fill="#1b1b2b"/><circle cx="126" cy="51.4" r="1.5" fill="#fff"/></g>
+              <path opacity="0" d="M116 55 Q123.5 60 131 55" stroke="#1565c0" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+              <path data-part="beak-low" d="M135 63 Q149 64 157 63 Q148 67.5 136 67 Z" fill="#e0a12e" stroke="#9a6a12" stroke-width=".8"/>
+              <path d="M134 54 Q150 56.5 162 61.5 Q150 63.5 136 63.5 Q131.5 59 134 54 Z" fill="#f6c453" stroke="#9a6a12" stroke-width="1"/>   <!-- a sleek, slim beak -->
+            </g>
+          </g>
+</svg>

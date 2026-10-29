@@ -65,3 +65,14 @@ def test_missing_voice_is_a_voice_error(monkeypatch, tmp_path):
         assert False, "should have failed"
     except voice.VoiceError:
         pass
+
+
+def test_english_asks_for_a_steady_american_accent_and_telugu_stays_as_it_was(monkeypatch):
+    from app import voice
+    sent = []
+    monkeypatch.setattr(voice, "secret", lambda name: "key")
+    monkeypatch.setattr(voice, "_stream", lambda name, method, url, **request: sent.append(request["json"]) or iter([b"mp3"]))
+    voice.speak_as("Hello Babu", "en", "myVoice1")
+    voice.speak_as("నమస్తే బాబు", "te", "myVoice1")
+    assert sent[0]["text"] == "[American accent] Hello Babu" and sent[0]["voice_settings"]["stability"] == 0.75
+    assert sent[1] == {"text": "నమస్తే బాబు", "model_id": voice.ELEVENLABS_MODEL, "language_code": "te"}

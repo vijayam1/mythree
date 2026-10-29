@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mythree · two phones</title>
+  <link rel="icon" type="image/svg+xml" href="/static/mythree-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+Tammudu+2:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Two phones side by side on one big screen, for testing alone.
+       Each phone is the real phone app (/phone); they share this computer's one microphone,
+       so when one phone listens, the other stops listening by itself. */
+    :root { --ink: #26304a; --soft: #6b7287; --bg: #e4f2dc; --leaf: #1f9d6b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Baloo Tammudu 2", system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    header { max-width: 900px; margin: 0 auto; padding: 14px 16px 4px; }
+    h1 { font-size: 30px; margin: 0; line-height: 1; }
+    h1 img { height: 1.5em; vertical-align: -0.35em; margin-right: 6px; }
+    ol { margin: 8px 0 0; padding-left: 22px; line-height: 1.45; font-size: 16px; }
+    .phones { display: flex; flex-wrap: wrap; justify-content: center; gap: 28px; padding: 12px 16px 28px; }
+    figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    figcaption { font-weight: 700; font-size: 17px; }
+    iframe { width: 390px; max-width: calc(100vw - 32px); height: min(800px, calc(100vh - 150px)); min-height: 560px;
+             border: 10px solid #26304a; border-radius: 36px; background: var(--bg); box-shadow: 0 12px 30px rgba(0,0,0,.25); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><img src="/static/mythree-logo.svg" alt="">Mythree · two phones</h1>
+    <ol>
+      <li>Left phone: choose who you are and your language, then tap <b>Start a call</b> · ఎడమ ఫోన్‌లో కాల్ మొదలుపెట్టండి</li>
+      <li>Right phone: the code fills in by itself. Choose the other language, tap <b>Join</b> · కుడి ఫోన్‌లో Join నొక్కండి</li>
+      <li>Tap the green mic on the phone of the person who talks. The other phone stops listening by itself · మాట్లాడే వాళ్ళ ఫోన్‌లో గ్రీన్ మైక్ నొక్కండి</li>
+    </ol>
+  </header>
+  <main class="phones">
+    <figure><figcaption>Phone 1 · ఫోన్ 1</figcaption>
+      <iframe src="/phone?demo=a" title="Phone 1" allow="microphone; autoplay; clipboard-write"></iframe></figure>
+    <figure><figcaption>Phone 2 · ఫోన్ 2</figcaption>
+      <iframe src="/phone?demo=b" title="Phone 2" allow="microphone; autoplay; clipboard-write"></iframe></figure>
+  </main>
+</body>
+</html>

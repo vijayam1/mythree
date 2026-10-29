@@ -14,12 +14,17 @@ const $ = (id) => document.getElementById(id);
 const RELATION_WORDS = { grandfather: "the grandfather", grandmother: "the grandmother", grandson: "the grandson",
   granddaughter: "the granddaughter", father: "the father", mother: "the mother", son: "the son",
   daughter: "the daughter", friend: "a friend" };
+const RELATION_TE = { grandfather: "తాతగారు", grandmother: "అమ్మమ్మ", grandson: "మనవడు", granddaughter: "మనవరాలు",
+  father: "నాన్న", mother: "అమ్మ", son: "కొడుకు", daughter: "కూతురు", friend: "స్నేహితుడు" };
 
 // --- Passcode (online only) --------------------------------------------------
 let passcode = (() => { try { return localStorage.getItem("mythree-passcode") || ""; } catch { return ""; } })();
+// Each call's link has a hidden key next to the 4-digit code, so nobody can join or read a call
+// by guessing codes. The phone sends it with every request about the call.
+let callKey = "";
 
 async function api(url, options = {}) {
-  options.headers = { ...(options.headers || {}), "X-Mythree-Passcode": passcode };
+  options.headers = { ...(options.headers || {}), "X-Mythree-Passcode": passcode, "X-Mythree-Call-Key": callKey };
   const reply = await fetch(url, options);
   if (reply.status !== 401) return reply;
   const typed = prompt("Mythree passcode · పాస్‌కోడ్");
@@ -32,22 +37,93 @@ const postJson = (url, body) => api(url, { method: "POST", headers: { "Content-T
 async function problemOf(reply) {
   try { return (await reply.json()).detail || "Something went wrong."; } catch { return "Something went wrong."; }
 }
-api("/api/hello");   // ask for the passcode right away
+// Ask for the passcode right away, except when the page was opened from a call's link: its hidden
+// key is enough to answer that call, so a grandmother never sees a passcode.
+if (!new URLSearchParams(location.search).get("key")) api("/api/hello");
+
+// --- Demo view (/demo): two phones side by side on one screen, for testing alone ---
+// Each side is this same phone app, so later the two phones simply go to two places.
+const DEMO = new URLSearchParams(location.search).get("demo");   // "a" (left), "b" (right), or null on a real phone
+const ME_KEY = DEMO === "b" ? "mythree-me-b" : "mythree-me";     // the right phone remembers its own person
+const demo = DEMO ? new BroadcastChannel("mythree-demo") : null;  // how the two sides tell each other things
+const demoTail = DEMO ? `&demo=${DEMO}` : "";
 
 // --- Who am I (remembered on this phone) --------------------------------------
-const saved = (() => { try { return JSON.parse(localStorage.getItem("mythree-me")) || {}; } catch { return {}; } })();
+const saved = (() => { try { return JSON.parse(localStorage.getItem(ME_KEY)) || {}; } catch { return {}; } })();
 if (saved.relation) $("relation").value = saved.relation;
 if (saved.name) $("name").value = saved.name;
 if (saved.lang) $("lang").value = saved.lang;
 let myVoice = saved.voice || "";   // the ID of the voice I recorded (it stays on this phone)
-const fromLink = new URLSearchParams(location.search).get("code");
-if (fromLink) $("code").value = fromLink;
+if (saved.theirPhone) $("their-phone").value = saved.theirPhone;
+if (saved.theirEmail) $("their-email").value = saved.theirEmail;
+if (saved.theirRelation) $("their-relation").value = saved.theirRelation;
+// With two languages, the person I call always speaks the other one: changing either choice
+// changes the other, so a grandson is never sent a Telugu invitation by mistake.
+const otherLang = (lang) => (lang === "te" ? "en" : "te");
+$("their-lang").value = otherLang($("lang").value);
+$("lang").addEventListener("change", () => { $("their-lang").value = otherLang($("lang").value); });
+$("their-lang").addEventListener("change", () => { $("lang").value = otherLang($("their-lang").value); });
+const link = new URLSearchParams(location.search);
+if (link.get("code")) invited(link.get("code"), link.get("key") || "");
+
+async function invited(code, key) {   // opened from a link
+  callKey = key;
+  $("code").value = code;
+  const reply = key ? await api(`/api/calls/${code}?after=0&known=0`) : null;
+  const news = reply?.ok ? await reply.json() : null;
+  if (news?.invite && !news.people.b) return showAnswer(code, news.invite);   // the caller chose for them: one button
+  $("invite").hidden = false;   // otherwise: the steps and the Join button, not "Start a call"
+  for (const id of ["calling", "start-call", "or"]) $(id).hidden = true;
+}
+
+// --- Answering: the invited person (often a grandparent) taps one big button -----
+const ANSWER = {
+  te: { calling: (c) => `${c} కాల్ చేస్తున్నారు`, answer: "ఎత్తండి", ended: "కాల్ ముగిసింది",
+        allow: "ఫోన్ \"Allow\" అని అడిగితే, Allow నొక్కండి", listening: "మాట్లాడండి, మైత్రి వింటోంది",
+        tap: "గ్రీన్ బటన్ నొక్కి మాట్లాడండి" },
+  en: { calling: (c) => `${c} is calling`, answer: "Answer", ended: "The call has ended",
+        allow: "If your phone asks, tap \"Allow\"", listening: "Just talk, Mythree is listening",
+        tap: "Tap the green button to talk" },
+};
+let simple = null;   // the words for a grandparent's screen, in their language (null = the full app)
+
+function showAnswer(code, invite) {
+  const words = ANSWER[invite.lang] || ANSWER.en;
+  $("setup").hidden = true;
+  $("answer").hidden = false;
+  $("caller-line").textContent = words.calling(invite.caller || "Mythree");
+  $("answer-word").textContent = words.answer;
+  $("allow-hint").textContent = words.allow;
+  $("answer-btn").hidden = false;
+  $("answer-btn").onclick = async () => {
+    unlockSound();
+    const reply = await postJson(`/api/calls/${code}/join`, { answer: true });
+    if (!reply.ok) return ($("answer-problem").textContent = await problemOf(reply));
+    const { person } = await reply.json();
+    simple = words;
+    document.body.classList.add("simple");
+    $("answer").hidden = true;
+    enter(code, person, invite.lang);
+    showMic(false);   // her words under the mic, in her language
+    start();   // the mic turns on by itself: there is nothing to press, just talk
+  };
+}
 
 function me() {
   const relation = $("relation").value, name = $("name").value.trim(), lang = $("lang").value;
-  try { localStorage.setItem("mythree-me", JSON.stringify({ relation, name, lang, voice: myVoice })); } catch { /* private window */ }
+  const theirPhone = $("their-phone").value.trim(), theirEmail = $("their-email").value.trim();
+  const theirRelation = $("their-relation").value, theirLang = $("their-lang").value;
+  try {
+    localStorage.setItem(ME_KEY, JSON.stringify({ relation, name, lang, voice: myVoice, theirPhone, theirEmail,
+                                                   theirRelation, theirLang }));
+  } catch { /* private window */ }
   const role = RELATION_WORDS[relation] || "a family member";
-  return { who: name ? `${name}, ${role}` : role, lang, voice: myVoice };
+  // Who I'm calling: then their screen shows only "<me> is calling" and one Answer button.
+  const caller = name || (theirLang === "te" ? `మీ ${RELATION_TE[relation] || ""}`.trim()
+                                             : role.replace(/^(the|a) /, "your ").replace(/^./, (c) => c.toUpperCase()));
+  const them = theirRelation && theirLang !== lang
+    ? { who: RELATION_WORDS[theirRelation], lang: theirLang, caller } : null;
+  return { who: name ? `${name}, ${role}` : role, lang, voice: myVoice, them };
 }
 
 // --- Starting or joining a call ----------------------------------------------
@@ -58,7 +134,8 @@ $("start-call").addEventListener("click", async () => {
   const mine = me();
   const reply = await postJson("/api/calls", mine);
   if (!reply.ok) return ($("problem").textContent = await problemOf(reply));
-  const { code, person } = await reply.json();
+  const { code, person, key } = await reply.json();
+  callKey = key;
   enter(code, person, mine.lang);
 });
 
@@ -66,8 +143,13 @@ $("join-call").addEventListener("click", async () => {
   unlockSound();
   const code = $("code").value.trim();
   if (!/^\d{4}$/.test(code)) return ($("problem").textContent = "Please type the 4-digit code · 4 అంకెల కోడ్");
+  if (!callKey) return ($("problem").textContent = "Please tap the link you were sent · మీకు వచ్చిన లింక్ నొక్కండి");
   const mine = me();
   const reply = await postJson(`/api/calls/${code}/join`, mine);
+  if (reply.status === 404) {   // the call has ended (or Mythree restarted): offer a new call instead
+    $("invite").hidden = true;
+    for (const id of ["calling", "start-call", "or"]) $(id).hidden = false;
+  }
   if (!reply.ok) return ($("problem").textContent = await problemOf(reply));
   const { person } = await reply.json();
   enter(code, person, mine.lang);
@@ -80,7 +162,8 @@ function enter(code, person, lang) {
   $("setup").hidden = true;
   $("call").hidden = false;
   $("end").hidden = false;
-  history.replaceState(null, "", `/phone?code=${code}`);
+  history.replaceState(null, "", `/phone?code=${code}&key=${callKey}${demoTail}`);
+  if (DEMO && person === "a") demo.postMessage({ code, key: callKey });   // the other side gets the call by itself
   showStatus();
   follow(call);
 }
@@ -92,8 +175,15 @@ $("end").addEventListener("click", () => {
   $("talk").replaceChildren();
   $("call").hidden = true;
   $("end").hidden = true;
+  if (simple) {   // a grandparent's phone: just say the call has ended
+    $("answer").hidden = false;
+    $("caller-line").textContent = simple.ended;
+    $("answer-btn").hidden = true;
+    $("allow-hint").textContent = "";
+    return;
+  }
   $("setup").hidden = false;
-  history.replaceState(null, "", "/phone");
+  history.replaceState(null, "", DEMO ? `/phone?demo=${DEMO}` : "/phone");
 });
 
 const them = () => call && call.people[call.person === "a" ? "b" : "a"];
@@ -107,24 +197,78 @@ function showStatus(note) {
     return;
   }
   box.innerHTML = "";
-  box.append("Share this code · ఈ కోడ్ పంపండి", document.createElement("br"));
-  const code = document.createElement("strong");
-  code.textContent = call.code;
-  box.append(code, document.createElement("br"));
-  const share = document.createElement("button");
-  share.className = "plain";
-  share.textContent = "Send the link · లింక్ పంపండి";
-  share.addEventListener("click", () => shareLink());
-  box.append(share);
+  const steps = document.createElement("div");
+  steps.className = "steps";
+  steps.innerHTML = `<h2>Your call code · మీ కోడ్: <strong></strong></h2>
+    <ol>
+      <li>Tap WhatsApp, Email or Text below · కింద WhatsApp, Email లేదా Text బటన్ నొక్కండి</li>
+      <li>There, tap <b>Send</b> · అక్కడ <b>Send</b> నొక్కండి</li>
+      <li>Come back here and wait. This box turns to "Talking with…" when they join · వాళ్ళు జాయిన్ అయ్యే వరకు ఇక్కడే ఉండండి</li>
+      <li>Then tap the green mic button 🎙️. When it turns red, talk · తర్వాత గ్రీన్ మైక్ బటన్ 🎙️ నొక్కండి. అది ఎరుపు అయ్యాక మాట్లాడండి</li>
+    </ol>`;
+  steps.querySelector("strong").textContent = call.code;
+  const sends = document.createElement("div");
+  sends.className = "sends";
+  const { whatsapp, email, text } = invitation();
+  sends.append(sendButton("whatsapp", "WhatsApp", whatsapp), sendButton("email", "Email", email),
+               sendButton("text", "Text · SMS", text), copyButton());
+  box.append(steps, sends);
 }
 
-async function shareLink() {
-  const link = `${location.origin}/phone?code=${call.code}`;
-  const text = `Join me on Mythree · మైత్రిలో చేరండి: ${link}`;
-  try {
-    if (navigator.share) await navigator.share({ title: "Mythree", text, url: link });
-    else { await navigator.clipboard.writeText(link); showStatus("Link copied · లింక్ కాపీ అయింది"); setTimeout(() => showStatus(), 2000); }
-  } catch { /* the person closed the share sheet */ }
+// The invitation: the link plus clear steps, in English and Telugu, ready to send.
+// A web page can't send a message by itself; it opens WhatsApp, email or messages with
+// everything filled in, and the caller taps Send.
+function invitation() {
+  const link = `${location.origin}/phone?code=${call.code}&key=${callKey}`;
+  const mine = me();
+  const who = mine.who.replace(/^./, (c) => c.toUpperCase());   // "the grandson" starts the message: "The grandson"
+  const message = mine.them   // I chose who I'm calling: a short message in their language, one button for them
+    ? (mine.them.lang === "te"
+      ? `${mine.them.caller} మైత్రిలో మీకు కాల్ చేస్తున్నారు 📞\nఈ లింక్ నొక్కండి, తర్వాత పెద్ద గ్రీన్ "ఎత్తండి" బటన్ నొక్కండి:\n${link}`
+      : `${mine.them.caller} is calling you on Mythree 📞\nTap this link, then the big green "Answer" button:\n${link}`)
+    :
+    `${who} is calling you on Mythree, so we can talk, each in our own language.\n` +
+    `1. Tap this link: ${link}\n` +
+    `2. Choose who you are and the language you speak.\n` +
+    `3. Tap the green "Join" button (the code ${call.code} is already filled in).\n` +
+    `4. If it asks for a passcode, type the one I gave you.\n` +
+    `5. Tap the green mic button 🎙️. When it turns red, talk. Pause a little after each sentence.\n\n` +
+    `మైత్రిలో మీకు కాల్ చేస్తున్నాను, ఎవరి భాషలో వాళ్ళు మాట్లాడుకోవచ్చు.\n` +
+    `1. ఈ లింక్ నొక్కండి: ${link}\n` +
+    `2. మీరు ఎవరు, మీ భాష ఏమిటి, ఎంచుకోండి.\n` +
+    `3. గ్రీన్ "Join" బటన్ నొక్కండి. కాల్‌లో జాయిన్ అవుతారు (కోడ్ ${call.code} ముందే ఉంటుంది).\n` +
+    `4. పాస్‌కోడ్ అడిగితే, నేను ఇచ్చింది టైప్ చేయండి.\n` +
+    `5. గ్రీన్ మైక్ బటన్ 🎙️ నొక్కండి. అది ఎరుపు అయ్యాక మాట్లాడండి. ప్రతి మాట తర్వాత కొంచెం ఆగండి.`;
+  const phone = $("their-phone").value.replace(/[^\d]/g, "");   // WhatsApp wants only digits, with country code
+  const email = $("their-email").value.trim();
+  const words = encodeURIComponent(message);
+  return {
+    message,
+    whatsapp: `https://wa.me/${phone}?text=${words}`,
+    email: `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("Mythree call · మైత్రి కాల్ " + call.code)}&body=${words}`,
+    text: `sms:${phone ? "+" + phone : ""}?&body=${words}`,
+  };
+}
+
+function sendButton(kind, label, href) {
+  const a = document.createElement("a");
+  a.className = `send ${kind}`;
+  a.textContent = label;
+  a.href = href;
+  if (kind === "whatsapp") a.target = "_blank";
+  return a;
+}
+
+function copyButton() {
+  const b = document.createElement("button");
+  b.className = "send copy";
+  b.textContent = "Copy · కాపీ";
+  b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(invitation().message); b.textContent = "Copied ✓"; }
+    catch { b.textContent = "Couldn't copy"; }
+    setTimeout(() => (b.textContent = "Copy · కాపీ"), 2000);
+  });
+  return b;
 }
 
 // --- Waiting for news from the other phone -----------------------------------
@@ -168,7 +312,7 @@ function addLine(kind, big, small) {
     line.append(note);
   }
   $("talk").append(line);
-  line.scrollIntoView({ behavior: "smooth", block: "end" });
+  $("talk").scrollTop = $("talk").scrollHeight;   // always show the newest line
   return line;
 }
 
@@ -176,7 +320,15 @@ function addLine(kind, big, small) {
 let ctx, stream, node;
 let noise = 0.01, speaking = false, chunks = [], preRoll = [], speechMs = 0, quietMs = 0, lastHeard = 0;
 
-$("mic").addEventListener("click", () => { unlockSound(); ctx ? stop() : start(); });
+$("mic").addEventListener("click", () => {
+  unlockSound();
+  if (!ctx && !them()) {   // nobody to talk to yet: the words would go nowhere
+    $("mic-label").textContent = "Nobody has joined yet. Send the link first, then wait · " +
+      "ఇంకా ఎవరూ జాయిన్ అవ్వలేదు. ముందు లింక్ పంపండి, తర్వాత ఆగండి";
+    return;
+  }
+  ctx ? stop() : start();
+});
 
 async function start() {
   try {
@@ -188,6 +340,8 @@ async function start() {
     return;
   }
   ctx = new AudioContext();
+  ctx.resume?.();   // started right after Answer (not a tap of its own): make sure it really runs
+  demo?.postMessage({ mic: DEMO });   // one microphone for both sides: the other side stops listening
   const source = ctx.createMediaStreamSource(stream);
   node = ctx.createScriptProcessor(4096, 1, 1);
   source.connect(node);
@@ -211,7 +365,9 @@ function showMic(on, why) {
   $("mic").classList.toggle("on", on);
   $("mic").textContent = on ? "⏹" : "🎙️";
   $("mic").setAttribute("aria-label", on ? "Stop talking" : "Start talking");
-  $("mic-label").textContent = why || (on ? "Listening… · వింటున్నాను…" : "Tap to talk · మాట్లాడటానికి నొక్కండి");
+  $("mic-label").textContent = why || (simple ? (on ? simple.listening : simple.tap) : on
+    ? "Red: talk now. Pause after each sentence. Tap red to stop · ఎరుపు: ఇప్పుడు మాట్లాడండి. ఆపాలంటే ఎరుపు బటన్ నొక్కండి"
+    : "Green: tap to talk · గ్రీన్ బటన్ నొక్కి మాట్లాడండి");
 }
 
 function reset() {
@@ -254,16 +410,13 @@ async function send(sentence, rate) {
   const line = addLine("mine", "…");
   const form = new FormData();
   form.append("audio", toWav(sentence, rate), "sentence.wav");
-  form.append("lang", mine.lang);
-  try {
-    const heard = await api("/api/hear", { method: "POST", body: form });
-    if (!heard.ok) throw new Error(await problemOf(heard));
-    const { text } = await heard.json();
-    if (!text) { line.remove(); return; }
-    line.textContent = text;
-    const reply = await postJson(`/api/calls/${mine.code}/said`, { person: mine.person, text });
+  form.append("person", mine.person);
+  try {   // one trip: the server hears, translates and shares it (from India, each trip adds time)
+    const reply = await api(`/api/calls/${mine.code}/heard`, { method: "POST", body: form });
     if (!reply.ok) throw new Error(await problemOf(reply));
     const m = await reply.json();
+    if (!m.text) { line.remove(); return; }
+    line.textContent = m.text;
     const note = document.createElement("small");
     note.textContent = m.translation;
     line.append(note);
@@ -304,13 +457,33 @@ async function sayNow(line, text, lang, n, mine) {   // in the voice of the pers
   try {
     const reply = await postJson(`/api/calls/${mine.code}/speak`, { n });
     if (!reply.ok) throw new Error("no own voice");
-    await play(URL.createObjectURL(await reply.blob()));
+    const sound = URL.createObjectURL(await reply.blob());
+    addReplay(line, () => play(sound));
+    await play(sound);
   } catch {
     line.querySelector("small")?.append(" · standard voice");
+    addReplay(line, () => standardVoice(text, lang));
     await standardVoice(text, lang);
   } finally {
     muted = false;
   }
+}
+
+// 🔁 Hear a sentence again. The sound is kept on this phone, so a replay is instant and costs nothing.
+function addReplay(line, again) {
+  if (line.querySelector(".replay")) return;
+  const button = document.createElement("button");
+  button.className = "replay";
+  button.textContent = "🔁";
+  button.setAttribute("aria-label", "Hear it again · మళ్ళీ వినండి");
+  button.addEventListener("click", () => {
+    unlockSound();
+    queue = queue.then(async () => {   // after anything already playing; the mic doesn't hear it
+      muted = true;
+      try { await again(); } finally { muted = false; }
+    });
+  });
+  line.prepend(button);
 }
 
 function play(src) {
@@ -489,4 +662,17 @@ function toWav(pieces, rate) {
   head.setUint32(28, TARGET_RATE * 2, true); head.setUint16(32, 2, true); head.setUint16(34, 16, true);
   text(36, "data"); head.setUint32(40, pcm.byteLength, true);
   return new Blob([head, pcm], { type: "audio/wav" });
+}
+
+// --- Demo view: the two sides take turns with the one microphone ---------------
+if (demo) {
+  if (DEMO === "b" && !saved.lang) {   // the right phone starts as the English-speaking grandson
+    $("lang").value = "en";
+    $("relation").value = "grandson";
+    $("their-lang").value = "te";
+  }
+  demo.onmessage = ({ data }) => {
+    if (data.mic && data.mic !== DEMO && ctx) stop("The other phone is listening now · ఇప్పుడు ఇంకో ఫోన్ వింటోంది");
+    if (data.code && !call) invited(data.code, data.key);
+  };
 }

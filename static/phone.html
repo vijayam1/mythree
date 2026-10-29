@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Mythree</title>
+  <link rel="icon" type="image/svg+xml" href="/static/mythree-logo.svg">
   <meta name="theme-color" content="#1f9d6b">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Mythree">
@@ -17,19 +18,65 @@
     body { margin: 0; font-family: "Baloo Tammudu 2", system-ui, sans-serif; background: var(--bg); color: var(--ink); }
     main { max-width: 480px; min-height: 100dvh; margin: 0 auto; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
     button, input, select { font: inherit; }
+    h1 .logo { height: 1.5em; width: auto; vertical-align: -0.35em; margin-right: 6px; }
     h1 { font-size: 30px; margin: 0; line-height: 1; }
     .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .card { background: var(--card); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-    label { font-size: 15px; color: var(--soft); display: flex; flex-direction: column; gap: 4px; }
-    input, select { font-size: 18px; padding: 10px 12px; border-radius: 12px; border: 2px solid #d5e3cf; background: #fff; color: var(--ink); }
-    .big { font-size: 20px; font-weight: 600; padding: 14px; border-radius: 16px; border: 0; color: #fff; background: var(--leaf);
-           box-shadow: 0 4px 0 var(--leaf-dark); cursor: pointer; }
-    .big:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--leaf-dark); }
-    .plain { font-size: 16px; padding: 8px 14px; border-radius: 12px; border: 2px solid #cbe0c1; background: #fff; color: var(--ink); cursor: pointer; }
+    label { font-size: 16px; font-weight: 600; color: var(--ink); display: flex; flex-direction: column; gap: 6px; }
+    /* Typing fields look like boxes: a clear dark border, a sunken inside, and a green glow when typing. */
+    input, select { font-size: 19px; padding: 12px 14px; border-radius: 10px; border: 2px solid #7f9a86; color: var(--ink);
+                    background: #fbfdf9; box-shadow: inset 0 3px 5px rgba(0,0,0,.12); min-height: 52px; }
+    input:focus, select:focus { outline: none; border-color: var(--leaf); box-shadow: inset 0 3px 5px rgba(0,0,0,.1), 0 0 0 3px #bfe9d3; }
+    input[type="checkbox"] { min-height: 0; box-shadow: none; accent-color: var(--leaf); }
+    /* Buttons look like real buttons: a raised top, a solid edge underneath, and they sink when pressed. */
+    /* Pressing hard on a Mac trackpad opened Apple's "Look Up" box instead of pressing the button:
+       button words can't be selected or looked up. */
+    button, .send { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .big, .plain, .send { cursor: pointer; transition: transform .06s, box-shadow .06s; -webkit-tap-highlight-color: transparent; }
+    .big { font-size: 20px; font-weight: 700; padding: 14px; border-radius: 16px; border: 0; color: #fff;
+           background: linear-gradient(#34c088, var(--leaf) 55%, #188a5c);
+           box-shadow: inset 0 2px 0 rgba(255,255,255,.35), 0 6px 0 var(--leaf-dark), 0 9px 14px rgba(0,0,0,.22);
+           text-shadow: 0 1px 1px rgba(0,0,0,.25); }
+    .big:active { transform: translateY(5px); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 1px 0 var(--leaf-dark), 0 2px 4px rgba(0,0,0,.2); }
+    /* Every button you press is green (only the mic and the recorder turn red while they listen). */
+    .plain { font-size: 16px; font-weight: 700; padding: 10px 14px; border-radius: 12px; border: 0; color: #fff;
+             background: linear-gradient(#34c088, var(--leaf) 55%, #188a5c); text-shadow: 0 1px 1px rgba(0,0,0,.25);
+             box-shadow: inset 0 2px 0 rgba(255,255,255,.35), 0 4px 0 var(--leaf-dark), 0 6px 10px rgba(0,0,0,.2); }
+    .plain:active { transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 1px 0 var(--leaf-dark), 0 2px 3px rgba(0,0,0,.15); }
+    .send { font-size: 18px; font-weight: 700; padding: 12px 10px; border-radius: 14px; border: 0; color: #fff; text-align: center;
+            text-decoration: none; background: linear-gradient(var(--top), var(--face)); text-shadow: 0 1px 1px rgba(0,0,0,.25);
+            box-shadow: inset 0 2px 0 rgba(255,255,255,.3), 0 5px 0 var(--edge), 0 8px 12px rgba(0,0,0,.2); }
+    .send:active { transform: translateY(4px); box-shadow: inset 0 2px 0 rgba(255,255,255,.2), 0 1px 0 var(--edge), 0 2px 4px rgba(0,0,0,.2); }
+    .send { --top: #34c088; --face: var(--leaf); --edge: var(--leaf-dark); }
+    .sends { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; margin-top: 8px; }
+    .steps { background: #fff7e0; border-radius: 14px; padding: 10px 14px; text-align: left; }
+    .steps h2 { font-size: 19px; }
+    .steps ol { margin: 6px 0 0; padding-left: 22px; line-height: 1.45; }
+    .steps li { margin-bottom: 4px; }
+    .answer { align-items: center; text-align: center; gap: 18px; padding: 28px 16px; }
+    .caller-face { width: 110px; height: 110px; border-radius: 50%; background: var(--leaf-soft); display: grid; place-items: center; font-size: 54px; }
+    .caller-line { font-size: 28px; font-weight: 700; margin: 0; line-height: 1.3; }
+    .answer-btn { width: 190px; height: 190px; border-radius: 50%; border: 0; color: #fff; font-size: 30px; font-weight: 700; cursor: pointer;
+                  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+                  background: radial-gradient(circle at 50% 30%, #4fd59c, var(--leaf) 60%, #168257); text-shadow: 0 1px 1px rgba(0,0,0,.25);
+                  box-shadow: inset 0 3px 0 rgba(255,255,255,.35), 0 10px 0 var(--leaf-dark), 0 14px 22px rgba(0,0,0,.25);
+                  animation: ring 1.4s ease-in-out infinite; }
+    .answer-btn span:first-child { font-size: 56px; }
+    .answer-btn:active { transform: translateY(8px); box-shadow: inset 0 3px 0 rgba(255,255,255,.25), 0 2px 0 var(--leaf-dark); }
+    @keyframes ring { 50% { transform: scale(1.05); } }
+    .allow-hint { margin: 0; font-size: 18px; line-height: 1.5; color: var(--soft); }
+    /* A grandparent's call screen: bigger words, a big red End button, nothing else to learn */
+    body.simple #talk li.theirs { font-size: 26px; }
+    body.simple #end { font-size: 20px; padding: 12px 18px; background: linear-gradient(#f07a6e, var(--stop) 55%, #b73a2e);
+                       box-shadow: inset 0 2px 0 rgba(255,255,255,.3), 0 4px 0 var(--stop-dark), 0 6px 10px rgba(0,0,0,.2); }
+    body.simple #mic-label { font-size: 20px; color: var(--ink); }
+    .calling { border: 2px dashed #cbe0c1; border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .calling p { margin: 0; color: var(--soft); font-size: 15px; line-height: 1.4; }
     .or { text-align: center; color: var(--soft); margin: 0; }
     .join { display: flex; gap: 8px; }
-    .join input { flex: 1; min-width: 0; letter-spacing: 4px; text-align: center; font-size: 22px; }
-    .problem { color: var(--stop-dark); min-height: 1.2em; margin: 0; text-align: center; }
+    .join input { flex: 0 0 120px; min-width: 0; letter-spacing: 4px; text-align: center; font-size: 22px; padding: 10px 6px; }
+    .join .big { flex: 1; }
+    .problem { color: var(--stop-dark); min-height: 1.2em; margin: 0; text-align: center; line-height: 1.45; }
     [hidden] { display: none !important; }
     .voice-box { background: var(--leaf-soft); border-radius: 14px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .voice-box p { margin: 0; width: 100%; }
@@ -43,7 +90,12 @@
     #rec.on { background: var(--stop); box-shadow: 0 4px 0 var(--stop-dark); }
     #rec-time { font-size: 22px; font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
 
-    #call { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+    /* During a call the screen fits the phone: the conversation scrolls inside its own area,
+       and the mic button always stays at the bottom. */
+    main:has(#call:not([hidden])) { height: 100dvh; min-height: 0; }
+    #call { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+    #talk { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    #status { flex: none; max-height: 45dvh; overflow-y: auto; }
     .status { background: var(--leaf-soft); border-radius: 14px; padding: 10px 14px; text-align: center; }
     .status strong { font-size: 26px; letter-spacing: 4px; }
     #talk { flex: 1; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
@@ -51,21 +103,37 @@
     #talk li.mine { align-self: flex-end; background: #fff; color: var(--soft); font-size: 16px; }
     #talk li.theirs { align-self: flex-start; background: var(--leaf); color: #fff; font-size: 21px; }
     #talk small { display: block; font-size: 13px; opacity: .8; margin-top: 4px; }
+    #talk .replay { float: right; margin: 0 0 6px 10px; width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
+                    font-size: 22px; background: linear-gradient(#ffffff, var(--leaf-soft));
+                    box-shadow: inset 0 1px 0 #fff, 0 4px 0 var(--leaf-dark), 0 6px 8px rgba(0,0,0,.2); }
+    #talk .replay:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--leaf-dark); }
     #mic { align-self: center; width: 96px; height: 96px; border-radius: 50%; border: 0; font-size: 40px; color: #fff; cursor: pointer;
-           background: var(--leaf); box-shadow: 0 5px 0 var(--leaf-dark); }
-    #mic.on { background: var(--stop); box-shadow: 0 5px 0 var(--stop-dark); }
+           background: radial-gradient(circle at 50% 30%, #4fd59c, var(--leaf) 60%, #168257); transition: transform .06s, box-shadow .06s;
+           box-shadow: inset 0 3px 0 rgba(255,255,255,.35), 0 8px 0 var(--leaf-dark), 0 12px 18px rgba(0,0,0,.25); }
+    #mic:active { transform: translateY(6px); box-shadow: inset 0 3px 0 rgba(255,255,255,.25), 0 2px 0 var(--leaf-dark), 0 3px 5px rgba(0,0,0,.2); }
+    #mic.on { background: radial-gradient(circle at 50% 30%, #f07a6e, var(--stop) 60%, #b73a2e);
+              box-shadow: inset 0 3px 0 rgba(255,255,255,.3), 0 8px 0 var(--stop-dark), 0 12px 18px rgba(0,0,0,.25); }
     #mic-label { text-align: center; margin: -4px 0 0; color: var(--soft); }
   </style>
 </head>
 <body>
 <main>
   <div class="bar">
-    <h1>Mythree</h1>
+    <h1><img class="logo" src="/static/mythree-logo.svg" alt="">Mythree</h1>
     <button id="end" class="plain" hidden>End call · ముగించు</button>
   </div>
 
   <!-- 1. Who am I? Then start a call, or join one with its code. -->
   <section id="setup" class="card">
+    <div id="invite" class="steps" hidden>
+      <h2>You're invited to a call · మిమ్మల్ని పిలుస్తున్నారు</h2>
+      <ol>
+        <li>Choose who you are and the language you speak · మీరు ఎవరు, మీ భాష ఏమిటి, ఎంచుకోండి</li>
+        <li>Tap the green <b>Join</b> button · గ్రీన్ <b>Join</b> బటన్ నొక్కండి. కాల్‌లో జాయిన్ అవుతారు</li>
+        <li>If it asks for a passcode, type the one you were given · పాస్‌కోడ్ అడిగితే టైప్ చేయండి</li>
+        <li>Tap the green mic button 🎙️. When it turns red, talk · గ్రీన్ మైక్ బటన్ 🎙️ నొక్కండి. అది ఎరుపు అయ్యాక మాట్లాడండి</li>
+      </ol>
+    </div>
     <label>I am · నేను
       <select id="relation">
         <option value="grandfather">Grandpa · తాతగారు</option>
@@ -94,13 +162,52 @@
       <button id="voice-hello" class="plain" hidden>Hear it · వినండి</button>
       <button id="voice-delete" class="plain" hidden>Delete it · తొలగించండి</button>
     </div>
+    <div id="calling" class="calling">
+      <p>Who are you calling? You choose for them, so they only tap one button · ఎవరికి కాల్ చేస్తున్నారు?</p>
+      <label>They are · వాళ్ళు
+        <select id="their-relation">
+          <option value="">They will choose · వాళ్ళే ఎంచుకుంటారు</option>
+          <option value="grandfather">Grandpa · తాతగారు</option>
+          <option value="grandmother">Grandma · అమ్మమ్మ / నానమ్మ</option>
+          <option value="grandson">Grandson · మనవడు</option>
+          <option value="granddaughter">Granddaughter · మనవరాలు</option>
+          <option value="father">Father · నాన్న</option>
+          <option value="mother">Mother · అమ్మ</option>
+          <option value="son">Son · కొడుకు</option>
+          <option value="daughter">Daughter · కూతురు</option>
+          <option value="friend">Friend · స్నేహితుడు</option>
+        </select>
+      </label>
+      <label>They speak · వాళ్ళ భాష
+        <select id="their-lang">
+          <option value="te">తెలుగు · Telugu</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+      <p>Send it to (optional, kept only on this phone) · ఎక్కడికి పంపాలి</p>
+      <label>Their WhatsApp number, with country code · వాట్సాప్ నంబర్
+        <input id="their-phone" type="tel" inputmode="tel" placeholder="+91 and the number" autocomplete="off">
+      </label>
+      <label>Their email · ఈమెయిల్
+        <input id="their-email" type="email" inputmode="email" placeholder="name@example.com" autocomplete="off">
+      </label>
+    </div>
     <button id="start-call" class="big">Start a call · కాల్ మొదలుపెట్టండి</button>
-    <p class="or">or · లేదా</p>
+    <p id="or" class="or">or · లేదా</p>
     <div class="join">
       <input id="code" inputmode="numeric" maxlength="4" placeholder="1234" aria-label="Call code">
-      <button id="join-call" class="big">Join · చేరండి</button>
+      <button id="join-call" class="big">Join · జాయిన్ అవ్వండి</button>
     </div>
     <p id="problem" class="problem" role="alert"></p>
+  </section>
+
+  <!-- 1a. Invited by a call's link: one big Answer button, nothing to choose (for grandparents). -->
+  <section id="answer" class="card answer" hidden>
+    <div id="caller-face" class="caller-face" aria-hidden="true">📞</div>
+    <p id="caller-line" class="caller-line"></p>
+    <button id="answer-btn" class="answer-btn"><span aria-hidden="true">📞</span><span id="answer-word"></span></button>
+    <p id="allow-hint" class="allow-hint"></p>
+    <p id="answer-problem" class="problem" role="alert"></p>
   </section>
 
   <!-- 1b. My own voice: consent first, then about a minute of reading aloud. -->
@@ -125,7 +232,7 @@
     <div id="status" class="status" aria-live="polite"></div>
     <ul id="talk" aria-live="polite"></ul>
     <button id="mic" aria-label="Start talking">🎙️</button>
-    <p id="mic-label">Tap to talk · మాట్లాడటానికి నొక్కండి</p>
+    <p id="mic-label">Green: tap to talk · గ్రీన్ బటన్ నొక్కి మాట్లాడండి</p>
   </section>
 </main>
 <script src="/static/phone.js"></script>
