@@ -4,14 +4,17 @@ The key is read from the private .env file (or the environment) and is
 never sent to the web page.
 """
 
+import asyncio
 import json
 
 import httpx
+import websockets
 
 from app.settings import secret
 
 BASE = "https://api.meta.ai/v1"
 EARS_MODEL = "muse-voice-transcribe-1.0"
+LIVE_EARS = "wss://api.meta.ai/v1/asr/realtime"
 BRAIN_MODEL = "muse-spark-1.3"  # Standard model, not "contributor": family talk stays private
 # Main brain: Meta's open-weights model, run by Baseten (hackathon inference partner).
 OPEN_BRAIN_BASE = "https://inference.baseten.co/v1"
@@ -53,6 +56,72 @@ def transcribe(wav: bytes, languages: list[str] | None = None) -> str:
     if reply.status_code != 200:
         raise MetaError(f"Meta replied {reply.status_code}")
     return reply.json().get("transcript", "").strip()
+
+
+class LiveEars:
+    """Live ears: Meta hears one sentence while it is still being said (a websocket, one open line).
+
+    The phone streams its sound to Mythree, and Mythree passes it on here, because the key
+    travels in the first message and must never reach the phone. When the speaker pauses,
+    `end()` says the sentence is over, and the words are ready about 0.3 s later instead of
+    1–4 s (tested 30 Oct). Mythree's own 1.4 s pause decides when a sentence ends: Meta's
+    "ENDPOINTING" mode cut Telugu at short pauses.
+
+        async with LiveEars(["Telugu"]) as ears:
+            await ears.hear(pcm)            # 16 kHz, 16-bit, mono pieces, as they are spoken
+            await ears.end()
+            async for words, final in ears.words(): ...
+    """
+
+    def __init__(self, languages: list[str]):
+        self.languages, self.line = languages, None
+
+    async def __aenter__(self):
+        handshake = {"authorization": {"accessToken": f"Bearer {api_key()}"},
+                     "model": EARS_MODEL, "audioEncoding": "PCM_16KHZ", "mode": "PUSH_TO_TALK",
+                     "languageBias": self.languages, "emitAudioProgress": False}
+        try:
+            self.line = await websockets.connect(LIVE_EARS, open_timeout=5, max_size=2**20)
+            await self.line.send(json.dumps(handshake))
+            ack = json.loads(await asyncio.wait_for(self.line.recv(), 5))
+        except (OSError, asyncio.TimeoutError, websockets.WebSocketException, ValueError) as e:
+            await self.__aexit__()
+            raise MetaError(f"Could not reach Meta's live ears: {e.__class__.__name__}") from e
+        if "sessionId" not in ack:
+            await self.__aexit__()
+            raise MetaError(f"Meta's live ears said no: {ack.get('message', ack)}")
+        return self
+
+    async def __aexit__(self, *_):
+        if self.line:
+            await self.line.close()
+
+    async def hear(self, pcm: bytes):
+        try:
+            await self.line.send(pcm)
+        except websockets.WebSocketException as e:
+            raise MetaError("Meta's live ears stopped listening") from e
+
+    async def end(self):
+        try:
+            await self.line.send(json.dumps({"type": "endStream"}))
+        except websockets.WebSocketException as e:
+            raise MetaError("Meta's live ears stopped listening") from e
+
+    async def words(self):
+        """The words so far, as (words, final) pairs; the last one has final=True."""
+        try:
+            async for message in self.line:
+                m = json.loads(message) if isinstance(message, str) else {}
+                if m.get("type") == "error":
+                    raise MetaError(f"Meta's live ears: {m.get('message', 'error')}")
+                if m.get("type") == "transcript":
+                    yield m.get("transcript", "").strip(), bool(m.get("final"))
+                    if m.get("final"):
+                        return
+        except websockets.WebSocketException as e:
+            raise MetaError("Meta's live ears stopped listening") from e
+        raise MetaError("Meta's live ears closed before the last words")
 
 
 def chat(messages: list[dict]) -> str:

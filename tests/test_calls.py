@@ -1,6 +1,8 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 
-from app import rooms
+from app import meta, rooms
 from app.main import app
 
 client = TestClient(app)
@@ -423,3 +425,74 @@ def test_the_visitors_page_counts_numbers_only(monkeypatch):
 def test_the_visitors_page_needs_the_passcode(monkeypatch):
     monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
     assert client.get("/api/stats", headers={"X-Mythree-Passcode": ""}).status_code == 401
+
+
+class PretendLiveEars:
+    """Meta's live ears, pretend: hears the pieces, says the words so far, and the final words at the end."""
+    heard: list = []
+    fail = False
+
+    def __init__(self, languages):
+        self.languages, self.ended = languages, asyncio.Event()
+        PretendLiveEars.told = languages
+
+    async def __aenter__(self):
+        if PretendLiveEars.fail:
+            raise meta.MetaError("Meta is down")
+        return self
+
+    async def __aexit__(self, *_):
+        pass
+
+    async def hear(self, pcm):
+        PretendLiveEars.heard.append(pcm)
+
+    async def end(self):
+        self.ended.set()
+
+    async def words(self):
+        yield "नमस्ते", False
+        await self.ended.wait()
+        yield "नमस्ते బాబు", True
+
+
+def live_call(monkeypatch):
+    no_passcode(monkeypatch)
+    PretendLiveEars.heard, PretendLiveEars.fail = [], False
+    monkeypatch.setattr("app.meta.LiveEars", PretendLiveEars)
+    monkeypatch.setattr("app.brain.translate", lambda *a: "Hello Babu")
+    code = client.post("/api/calls", json={"who": "Grandpa", "lang": "te"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"})
+    return code, client.headers["X-Mythree-Call-Key"]
+
+
+def test_live_listening_hears_while_speaking(monkeypatch):
+    code, key = live_call(monkeypatch)
+    with client.websocket_connect(f"/api/calls/{code}/live") as line:
+        line.send_json({"key": key, "person": "a"})
+        line.send_bytes(b"\1\0" * 1280)
+        assert line.receive_json() == {"partial": "నమస్తే"}   # the words so far, while still talking
+        line.send_bytes(b"\2\0" * 1280)
+        line.send_json({"end": True})
+        m = line.receive_json()
+    assert (m["text"], m["translation"], m["to"]) == ("నమస్తే బాబు", "Hello Babu", "en")
+    assert PretendLiveEars.told == ["Telugu"] and len(PretendLiveEars.heard) == 2
+    news = client.get(f"/api/calls/{code}?after=0&known=0").json()   # the grandson's phone gets it
+    assert [x["translation"] for x in news["messages"]] == ["Hello Babu"]
+
+
+def test_live_listening_needs_the_hidden_key(monkeypatch):
+    code, _ = live_call(monkeypatch)
+    with client.websocket_connect(f"/api/calls/{code}/live") as line:
+        line.send_json({"key": "guess", "person": "a"})
+        assert "error" in line.receive_json()
+    assert PretendLiveEars.heard == []
+
+
+def test_when_live_listening_fails_the_phone_is_told_to_use_the_old_way(monkeypatch):
+    code, key = live_call(monkeypatch)
+    PretendLiveEars.fail = True
+    with client.websocket_connect(f"/api/calls/{code}/live") as line:
+        line.send_json({"key": key, "person": "a"})
+        assert "error" in line.receive_json()
+    assert client.get(f"/api/calls/{code}?after=0&known=0").json()["messages"] == []

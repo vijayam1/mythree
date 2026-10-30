@@ -1,7 +1,6 @@
 """Mythree's server.
 
-It serves the home page and Mythree's senses. The ears are here; the
-brain, eyes and voice are added one milestone at a time.
+It serves the home page and Mythree's senses: ears, brain and voice.
 """
 
 import asyncio
@@ -12,7 +11,7 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -407,6 +406,74 @@ async def heard_in_call(code: str, audio: UploadFile = File(...), person: str = 
     if not text:
         return {"text": ""}
     return await share(room, person, text)
+
+
+LIVE_SECONDS = 45   # one sentence on the live line: at most 25 s of speech, plus room to spare
+
+
+@app.websocket("/api/calls/{code}/live")
+async def live_in_call(socket: WebSocket, code: str):
+    """One spoken sentence, heard while it is being said (Meta's live ears), then translated and shared.
+
+    The phone opens this line when its person starts talking: first {"key", "person"} (a browser
+    can't add headers to a websocket), then the sound in small pieces, then {"end": true} after
+    the pause. Meanwhile it gets {"partial": words}; at the end, the same reply as /heard.
+    On {"error"} the phone sends the whole sentence the old way (/heard), so nothing is lost."""
+    await socket.accept()
+    try:
+        hello = await asyncio.wait_for(socket.receive_json(), 10)
+        room = await room_or_404(code, str(hello.get("key", "")))
+        person = str(hello.get("person", ""))
+        me, _ = the_two(room, person)
+        async with meta.LiveEars([brain.LANGUAGE_NAMES[me["lang"]]]) as ears:
+            text = await asyncio.wait_for(hear_live(socket, ears), LIVE_SECONDS)
+        text = devanagari_to_telugu(text)
+        reply = await share(room, person, text) if text else {"text": ""}
+    except WebSocketDisconnect:
+        return   # the phone went away (the sentence was a cough, or the call ended)
+    except HTTPException as e:
+        reply = {"error": e.detail}
+    except (meta.MetaError, asyncio.TimeoutError, ValueError, KeyError, AttributeError):
+        reply = {"error": "Live listening didn't work just now"}
+    try:
+        await socket.send_json(reply)
+        await socket.close()
+    except (WebSocketDisconnect, RuntimeError):
+        pass   # the phone has already gone
+
+
+async def hear_live(socket: WebSocket, ears: meta.LiveEars) -> str:
+    """Pass the phone's sound on to Meta while Meta's words come back; returns the final words."""
+    async def pass_on():
+        size = 0
+        while True:
+            message = await socket.receive()
+            if message["type"] == "websocket.disconnect":
+                raise WebSocketDisconnect()
+            if message.get("bytes"):
+                size += len(message["bytes"])
+                if size > MAX_SENTENCE_BYTES:
+                    raise HTTPException(413, "That sentence is too long. Please pause a little more often.")
+                await ears.hear(message["bytes"])
+            elif message.get("text"):   # {"end": true}: the speaker paused
+                await ears.end()
+                return
+
+    async def listen():
+        async for words, final in ears.words():
+            if final:
+                return words
+            await socket.send_json({"partial": devanagari_to_telugu(words)})
+
+    passing, listening = asyncio.create_task(pass_on()), asyncio.create_task(listen())
+    try:   # stop at once if either side fails; otherwise wait for the final words
+        await asyncio.wait({passing, listening}, return_when=asyncio.FIRST_EXCEPTION)
+        if passing.done() and passing.exception():
+            raise passing.exception()
+        return await listening
+    finally:
+        passing.cancel()
+        listening.cancel()
 
 
 def the_two(room: rooms.Room, person: str) -> tuple[dict, dict]:

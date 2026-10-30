@@ -372,6 +372,7 @@ function showMic(on, why) {
 
 function reset() {
   speaking = false; chunks = []; preRoll = []; speechMs = 0; quietMs = 0;
+  live?.abort(); live = null;
 }
 
 function listen(chunk) {
@@ -389,32 +390,87 @@ function listen(chunk) {
     noise = noise * 0.95 + level * 0.05;   // learn how quiet the room is
     preRoll.push(chunk);
     while (preRoll.length * ms > PRE_ROLL_MS) preRoll.shift();
-    if (loud) { speaking = true; chunks = [...preRoll]; $("mic-label").textContent = "Hearing you… · వింటున్నాను…"; }
+    if (loud) {
+      speaking = true; chunks = [...preRoll]; $("mic-label").textContent = "Hearing you… · వింటున్నాను…";
+      live = openLive(ctx.sampleRate);
+      chunks.forEach((c) => live?.hear(c));
+    }
     return;
   }
   chunks.push(chunk);
+  live?.hear(chunk);
   speechMs += ms;
   quietMs = level > start * 0.5 ? 0 : quietMs + ms;
   if (quietMs >= PAUSE_MS || speechMs >= MAX_SENTENCE_MS) {
-    const sentence = chunks, long = speechMs - quietMs;
+    const sentence = chunks, long = speechMs - quietMs, line = live;
+    live = null;   // this sentence keeps its live line; reset() must not close it
     reset();
     $("mic-label").textContent = "Listening… · వింటున్నాను…";
-    if (long >= MIN_SPEECH_MS) { lastHeard = Date.now(); send(sentence, ctx.sampleRate); }
+    if (long >= MIN_SPEECH_MS) { lastHeard = Date.now(); send(sentence, ctx.sampleRate, line); }
+    else line?.abort();   // a cough or a click
   }
 }
 
+// --- Live listening ---------------------------------------------------------------
+// While the person talks, the sound goes to Mythree in small pieces, and Mythree passes it
+// on to Meta's live ears, so the words are ready about 0.3 s after the pause instead of
+// 1–4 s later. (The key stays on the server: the phone never talks to Meta directly.)
+// If anything goes wrong, the whole sentence is sent the old way, so nothing is lost.
+const LIVE_WAIT_MS = 10000;   // no answer this long after the pause: use the old way
+let live = null;              // the live line of the sentence being said right now
+
+function openLive(rate) {
+  const mine = call;
+  if (!mine || !window.WebSocket) return null;
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${scheme}://${location.host}/api/calls/${mine.code}/live`);
+  const l = { line: null, waiting: [JSON.stringify({ key: callKey, person: mine.person })], done: null, failed: false };
+  const give = (m) => { l.failed = true; l.done?.(m); l.done = null; };
+  socket.onopen = () => { l.waiting.forEach((x) => socket.send(x)); l.waiting = []; };
+  socket.onmessage = ({ data }) => {
+    const m = JSON.parse(data);
+    if ("partial" in m) {   // the words so far, while the person is still talking
+      if (!m.partial) return;
+      l.line ||= addLine("mine", "");
+      l.line.textContent = m.partial + " …";
+    } else {
+      give(m.error ? null : m);
+      socket.close();
+    }
+  };
+  socket.onclose = socket.onerror = () => give(null);
+  const send = (x) => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(x);
+    else if (socket.readyState === WebSocket.CONNECTING) l.waiting.push(x);
+  };
+  l.hear = (chunk) => { if (!l.failed) send(toPcm16(chunk, rate).buffer); };
+  l.finish = () => new Promise((resolve) => {   // the reply (as from /heard), or null: use the old way
+    if (l.failed) return resolve(null);
+    l.done = resolve;
+    send(JSON.stringify({ end: true }));
+    setTimeout(() => { give(null); socket.close(); }, LIVE_WAIT_MS);
+  });
+  l.abort = () => { l.failed = true; l.done = null; l.line?.remove(); socket.close(); };
+  return l;
+}
+
 // One sentence: Meta's ears turn it into words, then Mythree translates it for the other phone.
-async function send(sentence, rate) {
+async function send(sentence, rate, liveLine) {
   const mine = call;
   if (!mine) return;
-  const line = addLine("mine", "…");
-  const form = new FormData();
-  form.append("audio", toWav(sentence, rate), "sentence.wav");
-  form.append("person", mine.person);
-  try {   // one trip: the server hears, translates and shares it (from India, each trip adds time)
-    const reply = await api(`/api/calls/${mine.code}/heard`, { method: "POST", body: form });
-    if (!reply.ok) throw new Error(await problemOf(reply));
-    const m = await reply.json();
+  const line = liveLine?.line || addLine("mine", "…");
+  if (liveLine) liveLine.line = line;   // late words so far go into this same line
+  try {
+    let m = liveLine ? await liveLine.finish() : null;   // heard live: ready almost at once
+    if (!m) {   // the old way, one trip: the server hears, translates and shares it
+      line.textContent = "…";
+      const form = new FormData();
+      form.append("audio", toWav(sentence, rate), "sentence.wav");
+      form.append("person", mine.person);
+      const reply = await api(`/api/calls/${mine.code}/heard`, { method: "POST", body: form });
+      if (!reply.ok) throw new Error(await problemOf(reply));
+      m = await reply.json();
+    }
     if (!m.text) { line.remove(); return; }
     line.textContent = m.text;
     const note = document.createElement("small");
@@ -453,11 +509,16 @@ function say(line, text, lang, n) {
 
 async function sayNow(line, text, lang, n, mine) {   // in the voice of the person who said it
   if (call !== mine) return;
+  const voiced = postJson(`/api/calls/${mine.code}/speak`, { n }).then(async (reply) => {
+    if (!reply.ok) throw new Error("no own voice");
+    return URL.createObjectURL(await reply.blob());
+  });
+  voiced.catch(() => {});   // handled below, after the wait
+  await untilPaused();
+  if (call !== mine) return;
   muted = true;
   try {
-    const reply = await postJson(`/api/calls/${mine.code}/speak`, { n });
-    if (!reply.ok) throw new Error("no own voice");
-    const sound = URL.createObjectURL(await reply.blob());
+    const sound = await voiced;
     addReplay(line, () => play(sound));
     await play(sound);
   } catch {
@@ -467,6 +528,16 @@ async function sayNow(line, text, lang, n, mine) {   // in the voice of the pers
   } finally {
     muted = false;
   }
+}
+
+// The other person's sentence arrived while my person is still talking: the words are already
+// on the screen, and the voice waits for the pause. Playing at once would stop the listening
+// and throw away the sentence my person is in the middle of (found in the phone test, 30 Oct).
+function untilPaused() {
+  return new Promise((resolve) => {
+    const check = () => (speaking ? setTimeout(check, 200) : resolve());
+    check();
+  });
 }
 
 // 🔁 Hear a sentence again. The sound is kept on this phone, so a replay is instant and costs nothing.
@@ -642,7 +713,20 @@ function toWav(pieces, rate) {
   const all = new Float32Array(pieces.reduce((n, p) => n + p.length, 0));
   let at = 0;
   for (const p of pieces) { all.set(p, at); at += p.length; }
+  const pcm = toPcm16(all, rate);
 
+  const head = new DataView(new ArrayBuffer(44));
+  const text = (at, s) => [...s].forEach((c, i) => head.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF"); head.setUint32(4, 36 + pcm.byteLength, true); text(8, "WAVE");
+  text(12, "fmt "); head.setUint32(16, 16, true); head.setUint16(20, 1, true);
+  head.setUint16(22, 1, true); head.setUint32(24, TARGET_RATE, true);
+  head.setUint32(28, TARGET_RATE * 2, true); head.setUint16(32, 2, true); head.setUint16(34, 16, true);
+  text(36, "data"); head.setUint32(40, pcm.byteLength, true);
+  return new Blob([head, pcm], { type: "audio/wav" });
+}
+
+// Sound from the microphone (numbers from -1 to 1, at the phone's rate) → 16 kHz, 16-bit, as Meta wants.
+function toPcm16(all, rate) {
   const step = rate / TARGET_RATE;
   const count = Math.floor(all.length / step);
   const pcm = new Int16Array(count);
@@ -653,15 +737,7 @@ function toWav(pieces, rate) {
     const x = Math.max(-1, Math.min(1, sum / (to - from)));
     pcm[i] = x * 32767;
   }
-
-  const head = new DataView(new ArrayBuffer(44));
-  const text = (at, s) => [...s].forEach((c, i) => head.setUint8(at + i, c.charCodeAt(0)));
-  text(0, "RIFF"); head.setUint32(4, 36 + pcm.byteLength, true); text(8, "WAVE");
-  text(12, "fmt "); head.setUint32(16, 16, true); head.setUint16(20, 1, true);
-  head.setUint16(22, 1, true); head.setUint32(24, TARGET_RATE, true);
-  head.setUint32(28, TARGET_RATE * 2, true); head.setUint16(32, 2, true); head.setUint16(34, 16, true);
-  text(36, "data"); head.setUint32(40, pcm.byteLength, true);
-  return new Blob([head, pcm], { type: "audio/wav" });
+  return pcm;
 }
 
 // --- Demo view: the two sides take turns with the one microphone ---------------
