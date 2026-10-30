@@ -78,7 +78,7 @@ async function invited(code, key) {   // opened from a link
 
 // --- Answering: the invited person (often a grandparent) taps one big button -----
 const ANSWER = {
-  te: { calling: (c) => `${c} కాల్ చేస్తున్నారు`, answer: "ఎత్తండి", ended: "కాల్ ముగిసింది",
+  te: { calling: (c) => `${c} కాల్ చేస్తున్నారు`, answer: "ఫోన్ ఎత్తండి", ended: "కాల్ ముగిసింది",
         allow: "ఫోన్ \"Allow\" అని అడిగితే, Allow నొక్కండి", listening: "మాట్లాడండి, మైత్రి వింటోంది",
         tap: "గ్రీన్ బటన్ నొక్కి మాట్లాడండి" },
   en: { calling: (c) => `${c} is calling`, answer: "Answer", ended: "The call has ended",
@@ -224,7 +224,7 @@ function invitation() {
   const who = mine.who.replace(/^./, (c) => c.toUpperCase());   // "the grandson" starts the message: "The grandson"
   const message = mine.them   // I chose who I'm calling: a short message in their language, one button for them
     ? (mine.them.lang === "te"
-      ? `${mine.them.caller} మైత్రిలో మీకు కాల్ చేస్తున్నారు 📞\nఈ లింక్ నొక్కండి, తర్వాత పెద్ద గ్రీన్ "ఎత్తండి" బటన్ నొక్కండి:\n${link}`
+      ? `${mine.them.caller} మైత్రిలో మీకు కాల్ చేస్తున్నారు 📞\nఈ లింక్ నొక్కండి, తర్వాత పెద్ద గ్రీన్ "ఫోన్ ఎత్తండి" బటన్ నొక్కండి:\n${link}`
       : `${mine.them.caller} is calling you on Mythree 📞\nTap this link, then the big green "Answer" button:\n${link}`)
     :
     `${who} is calling you on Mythree, so we can talk, each in our own language.\n` +

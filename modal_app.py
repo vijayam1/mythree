@@ -31,4 +31,7 @@ def web():
 
     # A copy of each call, so calls survive an update or restart (forgotten after a few hours).
     rooms.store = modal.Dict.from_name("mythree-calls", create_if_missing=True)
+    # How many people tried the Try page, per day (numbers only).
+    import app.main
+    app.main.stats_store = modal.Dict.from_name("mythree-try-stats", create_if_missing=True)
     return mythree

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mythree visitors</title>
+  <link rel="icon" type="image/svg+xml" href="/static/mythree-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+Tammudu+2:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Vijaya's private page: who is trying Mythree. Numbers only, never words, voices or names. */
+    :root { --ink: #26304a; --soft: #5f6679; --bg: #e4f2dc; --leaf: #1f9d6b; --leaf-dark: #0f6b47; --leaf-soft: #e3f6ec; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Baloo Tammudu 2", system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    main { max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+    h1 { font-size: 28px; margin: 0; line-height: 1.1; }
+    h1 img { height: 1.5em; vertical-align: -0.35em; margin-right: 6px; }
+    h2 { font-size: 20px; margin: 0 0 8px; }
+    .card { background: #fff; border-radius: 18px; padding: 14px 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tile { background: var(--leaf-soft); border-radius: 14px; padding: 10px 12px; }
+    .tile .n { font-size: 32px; font-weight: 700; line-height: 1.1; }
+    .tile .what { font-size: 15px; color: var(--soft); line-height: 1.3; }
+    ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    li { display: flex; justify-content: space-between; font-size: 17px; border-bottom: 1px solid #edf2ea; padding-bottom: 4px; }
+    .soft { color: var(--soft); font-size: 15px; margin: 0; line-height: 1.45; }
+    button { font: inherit; font-size: 17px; font-weight: 700; padding: 10px; border-radius: 14px; border: 0; color: #fff; cursor: pointer;
+             background: linear-gradient(#34c088, var(--leaf) 55%, #188a5c); box-shadow: 0 5px 0 var(--leaf-dark); }
+    button:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--leaf-dark); }
+  </style>
+</head>
+<body>
+<main>
+  <h1><img src="/static/mythree-logo.svg" alt="">Mythree visitors</h1>
+  <p class="soft">Who is trying the Try page. Only numbers: Mythree never keeps anyone's words, voice or name.</p>
+
+  <section class="card">
+    <h2>Today</h2>
+    <div class="grid">
+      <div class="tile"><div class="n" id="today-voices">–</div><div class="what">people lent their voice</div></div>
+      <div class="tile"><div class="n" id="today-sentences">–</div><div class="what">sentences spoken</div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Right now</h2>
+    <div class="grid">
+      <div class="tile"><div class="n" id="in-use">–</div><div class="what">own-voice places in use</div></div>
+      <div class="tile"><div class="n" id="characters">–</div><div class="what">ElevenLabs characters left</div></div>
+    </div>
+    <p class="soft" id="reserve"></p>
+  </section>
+
+  <section class="card">
+    <h2>The whole week</h2>
+    <div class="grid">
+      <div class="tile"><div class="n" id="week-voices">–</div><div class="what">people lent their voice</div></div>
+      <div class="tile"><div class="n" id="week-sentences">–</div><div class="what">sentences spoken</div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Languages this week</h2>
+    <ul id="languages"></ul>
+  </section>
+
+  <button id="refresh">Refresh</button>
+  <p class="soft" id="when"></p>
+</main>
+<script src="/static/stats.js"></script>
+</body>
+</html>

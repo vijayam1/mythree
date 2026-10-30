@@ -86,6 +86,21 @@ def learn(name: str, wav: bytes) -> str:
 TRY_NAME = "Mythree · Try visitor"
 
 
+def characters_left() -> int:
+    """How many ElevenLabs characters are left this month (shared by family calls and visitors)."""
+    key = secret("ELEVENLABS_API_KEY")
+    if not key:
+        raise VoiceError("No ElevenLabs key")
+    try:
+        reply = httpx.get(f"{ELEVENLABS}/user/subscription", headers={"xi-api-key": key}, timeout=30)
+    except httpx.HTTPError as e:
+        raise VoiceError(f"Could not reach ElevenLabs: {e.__class__.__name__}") from e
+    if reply.status_code != 200:
+        raise VoiceError(f"ElevenLabs replied {reply.status_code}")
+    plan = reply.json()
+    return plan.get("character_limit", 0) - plan.get("character_count", 0)
+
+
 def try_voices() -> dict[str, float]:
     """The Try page's visitor voices still kept at ElevenLabs: {voice ID: when it was made (Unix time)}."""
     key = secret("ELEVENLABS_API_KEY")

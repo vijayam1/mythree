@@ -23,7 +23,7 @@ async function api(url, options = {}) {
 async function problemOf(reply) {
   try { return (await reply.json()).detail || "Something went wrong."; } catch { return "Something went wrong."; }
 }
-api("/api/hello");   // ask for the passcode right away
+// The Try page is open to everyone: no passcode needed.
 
 // --- Recording from the microphone ---------------------------------------------
 async function record(onTick, seconds) {
@@ -112,14 +112,21 @@ $("rec").addEventListener("click", async () => {
   });
 });
 
+let lastWav = null;   // the visitor's 20 seconds, kept on this phone, so "Try my own voice again" needs no re-reading
+
 async function learn(wav) {
+  lastWav = wav;
   $("rec").textContent = "Learning your voice… (about 5 seconds)";
   const form = new FormData();
   form.append("audio", wav, "voice.wav");
   form.append("consent", "true");
   const reply = await api("/api/try/voice", { method: "POST", body: form });
   $("rec").textContent = "● Start recording";
-  if (reply.status === 503) return showTalk(await problemOf(reply));   // all voice places in use: go on with a standard voice
+  if (reply.status === 503) {   // all voice places in use: go on with a standard voice, and offer to try again later
+    showTalk(await problemOf(reply));
+    $("retry-voice").hidden = false;
+    return;
+  }
   if (!reply.ok) return ($("voice-problem").textContent = (await problemOf(reply)) + " You can also use a standard voice.");
   myVoice = (await reply.json()).voice;
   $("rec-bar").style.width = "0";
@@ -129,9 +136,26 @@ async function learn(wav) {
 
 // The first wow: as soon as the voice is learned, Mythree says hello in English, in that voice.
 async function greet() {
-  const reply = await api(`/api/voices/${myVoice}/hello?lang=en`, { method: "POST" });
+  const reply = await api(`/api/try/hello/${myVoice}`, { method: "POST" });
   if (reply.ok) play(URL.createObjectURL(await reply.blob()));
 }
+
+$("retry-voice").addEventListener("click", async () => {
+  $("retry-voice").hidden = true;
+  $("voice-note").textContent = "Learning your voice… (about 5 seconds)";
+  const form = new FormData();
+  form.append("audio", lastWav, "voice.wav");
+  form.append("consent", "true");
+  const reply = await api("/api/try/voice", { method: "POST", body: form });
+  if (!reply.ok) {
+    $("voice-note").textContent = await problemOf(reply);
+    $("retry-voice").hidden = false;
+    return;
+  }
+  myVoice = (await reply.json()).voice;
+  showTalk("🎉 Your voice is ready. Listen: that's you, speaking English!");
+  greet();
+});
 
 $("skip").addEventListener("click", () => { unlockSound(); showTalk("You'll hear a standard voice (not your own)."); });
 
@@ -145,7 +169,7 @@ function showTalk(note) {
 }
 
 $("forget").addEventListener("click", async () => {
-  await api(`/api/voices/${myVoice}`, { method: "DELETE" });
+  await api(`/api/try/voice/${myVoice}`, { method: "DELETE" });
   myVoice = "";
   $("step-done").hidden = true;
   $("voice-note").textContent = "Your voice copy is deleted. Thank you for trying Mythree! (From now on you'll hear a standard voice.)";
@@ -155,7 +179,7 @@ $("forget").addEventListener("click", async () => {
 // the page is gone). If even that fails, it is deleted after one hour anyway.
 window.addEventListener("pagehide", () => {
   if (!myVoice) return;
-  fetch(`/api/voices/${myVoice}`, { method: "DELETE", keepalive: true, headers: { "X-Mythree-Passcode": passcode } });
+  fetch(`/api/try/voice/${myVoice}`, { method: "DELETE", keepalive: true });
   myVoice = "";
 });
 

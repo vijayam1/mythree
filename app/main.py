@@ -59,17 +59,31 @@ def page(name: str) -> HTMLResponse:
 # visitor gets a fair number of requests per minute, so strangers can't use up the credits.
 REQUESTS_PER_MINUTE = 40
 recent: dict[str, deque] = defaultdict(deque)
+# Guessing the passcode: after WRONG_TRIES wrong passcodes in an hour, a visitor is refused until the hour is up.
+WRONG_TRIES = 10
+wrong: dict[str, deque] = defaultdict(deque)
 
 
 @app.middleware("http")
 async def guard(request, call_next):
     if not request.url.path.startswith("/api/"):
         return await call_next(request)
-    passcode = secret("MYTHREE_PASSCODE")
-    if passcode and not hmac.compare_digest(request.headers.get("x-mythree-passcode", ""), passcode) \
-            and not await invited(request):
-        return JSONResponse({"detail": "Passcode needed · పాస్‌కోడ్ కావాలి"}, status_code=401)
     visitor = request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0]
+    if request.url.path.startswith("/api/try/") and try_closed():
+        return JSONResponse({"detail": TRY_CLOSED}, status_code=410)
+    passcode = secret("MYTHREE_PASSCODE")
+    if passcode and not request.url.path.startswith("/api/try/"):   # the Try page is open to everyone
+        misses, now = wrong[visitor], time.monotonic()
+        while misses and now - misses[0] > 3600:
+            misses.popleft()
+        if len(misses) >= WRONG_TRIES:
+            return JSONResponse({"detail": "Too many wrong passcodes. Please try again in an hour. "
+                                           "· చాలాసార్లు తప్పు పాస్‌కోడ్. గంట తర్వాత ప్రయత్నించండి."}, status_code=429)
+        typed = request.headers.get("x-mythree-passcode", "")
+        if not hmac.compare_digest(typed, passcode) and not await invited(request):
+            if typed:   # a wrong guess (an empty one is just a page asking whether a passcode is needed)
+                misses.append(now)
+            return JSONResponse({"detail": "Passcode needed · పాస్‌కోడ్ కావాలి"}, status_code=401)
     times, now = recent[visitor], time.monotonic()
     while times and now - times[0] > 60:
         times.popleft()
@@ -108,9 +122,78 @@ def demo():
     return page("demo.html")
 
 
+# The free Try page is open for the hackathon week only: it closes by itself at the submission deadline,
+# Wednesday 4 November 2026, 8 PM in Dallas (Central Standard Time, 2 AM on 5 November in UTC).
+TRY_OPEN_UNTIL = 1793844000   # 2026-11-05 02:00 UTC
+TRY_CLOSED = "Try Mythree was open during the hackathon week, and it is closed now. Thank you for trying it! 🦚"
+
+
+def try_closed() -> bool:
+    return time.time() >= TRY_OPEN_UNTIL
+
+
+# --- Who is trying Mythree: numbers only, never words, voices or names ------------
+# Per Dallas day: {"voices": visitors who lent their voice, "sentences": sentences spoken,
+# "languages": {language chosen: sentences}}. Online they are kept in a small Modal store,
+# so they survive restarts; locally and in tests, in memory.
+stats_store = None          # online: a modal.Dict (set by modal_app.py)
+stats_days: dict[str, dict] = {}
+
+
+def dallas_day() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() - 6 * 3600))   # Dallas, near enough for counting
+
+
+async def count_visit(what: str, language: str = ""):
+    day = dallas_day()
+    try:
+        counts = (await stats_store.get.aio(day) if stats_store is not None else stats_days.get(day)) or {}
+        counts[what] = counts.get(what, 0) + 1
+        if what == "sentences":
+            languages = counts.setdefault("languages", {})
+            name = language or "Found by itself"
+            languages[name] = languages.get(name, 0) + 1
+        if stats_store is not None:
+            await stats_store.put.aio(day, counts)
+        else:
+            stats_days[day] = counts
+    except Exception:   # counting must never spoil a visitor's try
+        pass
+
+
+@app.get("/api/stats")
+async def stats():
+    """For Vijaya (behind the passcode): how many people tried Mythree, today and all week."""
+    if stats_store is not None:
+        days = {day: await stats_store.get.aio(day) async for day in stats_store.keys.aio()}
+    else:
+        days = dict(stats_days)
+    week = {"voices": 0, "sentences": 0, "languages": {}}
+    for counts in days.values():
+        week["voices"] += counts.get("voices", 0)
+        week["sentences"] += counts.get("sentences", 0)
+        for name, n in counts.get("languages", {}).items():
+            week["languages"][name] = week["languages"].get(name, 0) + n
+    try:
+        in_use = len(await run_in_threadpool(voice.try_voices))
+        left = await run_in_threadpool(voice.characters_left)
+    except voice.VoiceError:
+        in_use, left = None, None
+    return {"today": days.get(dallas_day(), {}), "week": week, "voices_in_use": in_use, "voice_places": TRY_MAX_VOICES,
+            "characters_left": left, "family_reserve": FAMILY_CHARACTERS, "open_until": TRY_OPEN_UNTIL}
+
+
+@app.get("/stats")
+def stats_page():
+    """Vijaya's private page: who is trying Mythree (numbers only)."""
+    return page("stats.html")
+
+
 @app.get("/try")
 def try_page():
     """For hackathon visitors: speak your own language, hear yourself speak English."""
+    if try_closed():
+        return page("try-closed.html")
     return page("try.html")
 
 
@@ -450,6 +533,21 @@ async def learn_voice(audio: UploadFile = File(...), name: str = Form("", max_le
 # deleted after TRY_MINUTES, so nobody's voice stays and the voice slots free up again.
 TRY_MINUTES = 60
 SHARE_AFTER_MINUTES = 10   # when all voice places are taken, a visitor voice this old may make room
+# Protecting the family's own Mythree (Vijaya, her husband, her son, and her demo video):
+TRY_MAX_VOICES = 7           # visitors hold at most 7 of ElevenLabs' 10 voice places; 3 stay for the family
+FAMILY_CHARACTERS = 20_000   # below this many characters left this month, visitors hear a standard voice
+VOICES_FULL = ("So many people are trying Mythree right now that all of its own-voice places are in use. 🙏 "
+                                     "Everything else works: speak, and you'll read and hear it in English in a standard voice. "
+                                     "Come back in about 10 minutes and tap \"Try my own voice again\".")
+STANDARD_VOICE = ("Today Mythree's own voices are saved for the family that built it, so you'll hear a standard "
+                  "voice. Everything else works the same!")
+
+
+async def family_characters_safe() -> bool:
+    try:
+        return await run_in_threadpool(voice.characters_left) > FAMILY_CHARACTERS
+    except voice.VoiceError:
+        return False
 
 
 async def tidy_try_voices(make_room: bool = False):
@@ -474,24 +572,82 @@ async def tidy_try_voices(make_room: bool = False):
             continue
 
 
+# The Try page is free for everyone, so it has a daily limit too (on top of each service's own spending limit).
+TRY_PER_DAY = 500
+try_today = {"day": "", "count": 0}
+
+
+def count_a_try():
+    today = time.strftime("%Y-%m-%d")
+    if try_today["day"] != today:
+        try_today.update(day=today, count=0)
+    if try_today["count"] >= TRY_PER_DAY:
+        raise HTTPException(503, "Mythree's free tries for today are used up. Please come back tomorrow!")
+    try_today["count"] += 1
+
+
+async def visitor_voice(voice_id: str) -> str:
+    """The free Try page may greet or delete only a visitor's voice, never a family voice."""
+    try:
+        visitors = await run_in_threadpool(voice.try_voices)
+    except voice.VoiceError:
+        raise HTTPException(503, "Your voice isn't ready just now.")
+    if voice_id not in visitors:
+        raise HTTPException(404, "Unknown voice")
+    return voice_id
+
+
+@app.post("/api/try/hello/{voice_id}")
+async def try_hello(voice_id: str):
+    """The first wow: "Hello! This is my voice in Mythree." in the visitor's own voice."""
+    try:
+        sound = await run_in_threadpool(voice.speak_as, HELLO["en"], "en", await visitor_voice(voice_id))
+    except voice.VoiceError:
+        raise HTTPException(503, "Your voice isn't ready just now.")
+    return StreamingResponse(sound, media_type="audio/mpeg")
+
+
+@app.delete("/api/try/voice/{voice_id}")
+async def try_forget(voice_id: str):
+    """Done: delete the visitor's voice copy."""
+    try:
+        await run_in_threadpool(voice.forget, await visitor_voice(voice_id))
+    except voice.VoiceError:
+        raise HTTPException(502, "Mythree couldn't delete your voice just now. It will be deleted within the hour.")
+    return {"ok": True}
+
+
 @app.post("/api/try/voice")
 async def try_learn_voice(audio: UploadFile = File(...), consent: bool = Form(False)):
     """A visitor's voice, for one hour at most."""
+    if not await family_characters_safe():
+        raise HTTPException(503, STANDARD_VOICE)
     await tidy_try_voices()
     try:
-        return await learn_voice(audio, voice.TRY_NAME.removeprefix("Mythree · "), consent)
+        visitors = await run_in_threadpool(voice.try_voices)
+    except voice.VoiceError:
+        visitors = {}
+    if len(visitors) >= TRY_MAX_VOICES:   # visitors' share is full: free a finished one, or use a standard voice
+        await tidy_try_voices(make_room=True)
+        if len(await run_in_threadpool(voice.try_voices)) >= TRY_MAX_VOICES:
+            raise HTTPException(503, VOICES_FULL)
+    try:
+        learned = await learn_voice(audio, voice.TRY_NAME.removeprefix("Mythree · "), consent)
+        await count_visit("voices")
+        return learned
     except HTTPException as e:
         if e.status_code != 502:
             raise
     await tidy_try_voices(make_room=True)   # probably all 10 voice places are taken: free one and try again
     await audio.seek(0)
     try:
-        return await learn_voice(audio, voice.TRY_NAME.removeprefix("Mythree · "), consent)
+        learned = await learn_voice(audio, voice.TRY_NAME.removeprefix("Mythree · "), consent)
+        await count_visit("voices")
+        return learned
     except HTTPException as e:
         if e.status_code != 502:
             raise
-    raise HTTPException(503, "All of Mythree's voice places are in use by other visitors right now, "
-                             "so you'll hear a standard voice. Everything else works the same!")
+    raise HTTPException(503, VOICES_FULL)
 
 
 # The languages a visitor may pick (all accepted by Meta's ears, tested 29 Oct). Without a pick the
@@ -505,6 +661,7 @@ TRY_LANGUAGES = {"Telugu", "Hindi", "Kannada", "Tamil", "Malayalam", "Bengali", 
 async def try_heard(audio: UploadFile = File(...), language: str = Form("")):
     """One sentence in any language: what was said, and the same in English.
     `language` (optional) is the visitor's own language, told to the ears."""
+    count_a_try()
     if language and language not in TRY_LANGUAGES:
         raise HTTPException(400, "Unknown language")
     wav = await audio.read(MAX_SENTENCE_BYTES + 1)
@@ -519,6 +676,7 @@ async def try_heard(audio: UploadFile = File(...), language: str = Form("")):
         english = await run_in_threadpool(brain.to_english, said) if said else ""
     except meta.MetaError:
         raise HTTPException(502, "Mythree couldn't hear that just now. Please try again.")
+    await count_visit("sentences", language)
     return {"text": said, "english": english}
 
 
@@ -530,6 +688,8 @@ class TrySpeak(BaseModel):
 @app.post("/api/try/speak")
 async def try_speak(line: TrySpeak):
     """The English, in the visitor's own voice."""
+    if not await family_characters_safe():
+        raise HTTPException(503, STANDARD_VOICE)
     try:
         sound = await run_in_threadpool(voice.speak_as, line.text, "en", own_voice_id(line.voice))
     except voice.VoiceError:

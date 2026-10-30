@@ -318,3 +318,108 @@ def test_visitors_still_testing_keep_their_voice_and_the_newcomer_hears_a_standa
     reply = client.post("/api/try/voice", files=files, data={"consent": "true"})
     assert reply.status_code == 503 and "standard voice" in reply.json()["detail"]
     assert forgotten == []
+
+
+def test_the_try_page_is_free_but_family_calls_still_need_the_passcode(monkeypatch):
+    monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
+    stranger = {"X-Mythree-Passcode": ""}
+    monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hola")
+    monkeypatch.setattr("app.brain.to_english", lambda text: "Hello")
+    wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
+    assert client.post("/api/try/heard", files=wav, headers=stranger).json()["english"] == "Hello"
+    assert client.post("/api/calls", json={"who": "x", "lang": "te"}, headers=stranger).status_code == 401
+    assert client.delete("/api/voices/familyVoice123", headers=stranger).status_code == 401
+
+
+def test_the_free_page_can_greet_or_delete_only_visitor_voices(monkeypatch):
+    no_passcode(monkeypatch)
+    forgotten = []
+    monkeypatch.setattr("app.voice.try_voices", lambda: {"visitorVoice1": 0})
+    monkeypatch.setattr("app.voice.forget", forgotten.append)
+    monkeypatch.setattr("app.voice.speak_as", lambda text, lang, v: iter([b"mp3"]))
+    assert client.delete("/api/try/voice/familyVoice123").status_code == 404
+    assert client.post("/api/try/hello/familyVoice123").status_code == 404
+    assert client.post("/api/try/hello/visitorVoice1").content == b"mp3"
+    assert client.delete("/api/try/voice/visitorVoice1").status_code == 200 and forgotten == ["visitorVoice1"]
+
+
+def test_the_free_page_has_a_daily_limit(monkeypatch):
+    no_passcode(monkeypatch)
+    from app import main
+    monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hola")
+    monkeypatch.setattr("app.brain.to_english", lambda text: "Hello")
+    monkeypatch.setattr(main, "try_today", {"day": __import__("time").strftime("%Y-%m-%d"), "count": main.TRY_PER_DAY})
+    wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
+    reply = client.post("/api/try/heard", files=wav)
+    assert reply.status_code == 503 and "tomorrow" in reply.json()["detail"]
+
+
+def test_family_characters_are_kept_for_the_family(monkeypatch):
+    no_passcode(monkeypatch)
+    monkeypatch.setattr("app.voice.characters_left", lambda: 19_000)   # under the family's reserve
+    spoken = []
+    monkeypatch.setattr("app.voice.speak_as", lambda *a: spoken.append(a) or iter([b"mp3"]))
+    reply = client.post("/api/try/speak", json={"text": "Hello", "voice": "visitorVoice1"})
+    assert reply.status_code == 503 and "standard voice" in reply.json()["detail"] and spoken == []
+    files = {"audio": ("v.wav", wav_of(25), "audio/wav")}
+    assert client.post("/api/try/voice", files=files, data={"consent": "true"}).status_code == 503
+
+
+def test_visitors_hold_at_most_seven_voice_places(monkeypatch):
+    no_passcode(monkeypatch)
+    import time
+    learned = []
+    monkeypatch.setattr("app.voice.try_voices", lambda: {f"visitor{i}": time.time() - 60 for i in range(7)})
+    monkeypatch.setattr("app.voice.forget", lambda v: None)
+    monkeypatch.setattr("app.voice.learn", lambda name, wav: learned.append(name) or "newVisitor1")
+    files = {"audio": ("v.wav", wav_of(25), "audio/wav")}
+    reply = client.post("/api/try/voice", files=files, data={"consent": "true"})
+    assert reply.status_code == 503 and learned == []   # all 7 visitors are still testing: a standard voice
+    assert "Try my own voice again" in reply.json()["detail"]
+
+
+def test_guessing_the_passcode_is_stopped_after_ten_wrong_tries(monkeypatch):
+    monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
+    for i in range(10):
+        assert client.get("/api/hello", headers={"X-Mythree-Passcode": f"guess{i}"}).status_code == 401
+    # the 11th try is refused, even with the right passcode, until the hour is up
+    assert client.get("/api/hello", headers={"X-Mythree-Passcode": "family-passcode"}).status_code == 429
+    assert client.post("/api/try/heard").status_code != 429   # the free Try page is never locked
+
+
+def test_a_page_asking_without_a_passcode_is_not_a_wrong_guess(monkeypatch):
+    monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
+    for _ in range(15):
+        assert client.get("/api/hello", headers={"X-Mythree-Passcode": ""}).status_code == 401
+    assert client.get("/api/hello", headers={"X-Mythree-Passcode": "family-passcode"}).status_code == 200
+
+
+def test_the_try_page_closes_by_itself_after_the_hackathon_week(monkeypatch):
+    no_passcode(monkeypatch)
+    from app import main
+    assert "Lend Mythree your voice" in client.get("/try").text
+    monkeypatch.setattr(main, "TRY_OPEN_UNTIL", 0)   # the deadline has passed
+    assert "Thank you for trying Mythree" in client.get("/try").text
+    reply = client.post("/api/try/heard", files={"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")})
+    assert reply.status_code == 410 and "closed" in reply.json()["detail"]
+
+
+def test_the_visitors_page_counts_numbers_only(monkeypatch):
+    no_passcode(monkeypatch)
+    from app import main
+    main.stats_days.clear()
+    monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "నమస్తే")
+    monkeypatch.setattr("app.brain.to_english", lambda text: "Hello")
+    monkeypatch.setattr("app.voice.try_voices", lambda: {"visitor1": 0})
+    wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
+    client.post("/api/try/heard", files=wav, data={"language": "Telugu"})
+    client.post("/api/try/heard", files=wav)
+    s = client.get("/api/stats").json()
+    assert s["today"]["sentences"] == 2 and s["week"]["languages"] == {"Telugu": 1, "Found by itself": 1}
+    assert s["voices_in_use"] == 1 and s["characters_left"] == 30_000
+    assert "నమస్తే" not in str(s) and "Hello" not in str(s)   # never the words
+
+
+def test_the_visitors_page_needs_the_passcode(monkeypatch):
+    monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
+    assert client.get("/api/stats", headers={"X-Mythree-Passcode": ""}).status_code == 401
