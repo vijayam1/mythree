@@ -225,24 +225,21 @@ def test_a_call_needs_its_hidden_key(monkeypatch):
     assert client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"}).status_code == 200
 
 
-def test_the_invited_person_answers_with_one_tap_and_no_passcode(monkeypatch):
-    monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
-    caller = {"X-Mythree-Passcode": "family-passcode"}
-    reply = client.post("/api/calls", headers=caller, json={
+def test_the_invited_person_answers_with_one_tap(monkeypatch):
+    no_passcode(monkeypatch)
+    reply = client.post("/api/calls", json={
         "who": "Sam, the grandson", "lang": "en",
         "them": {"who": "the grandmother", "lang": "te", "caller": "సామ్"}}).json()
     code, key = reply["code"], reply["key"]
-    grandma = {"X-Mythree-Call-Key": key, "X-Mythree-Passcode": ""}   # she has only the link
+    grandma = {"X-Mythree-Call-Key": key}   # she has only the link
     news = client.get(f"/api/calls/{code}?after=0&known=0", headers=grandma).json()
     assert news["invite"]["caller"] == "సామ్" and "b" not in news["people"]
     joined = client.post(f"/api/calls/{code}/join", headers=grandma, json={"answer": True})
     assert joined.status_code == 200
     assert client.get(f"/api/calls/{code}?after=0&known=0", headers=grandma).json()["people"]["b"] == \
         {"who": "the grandmother", "lang": "te"}
-    # the link opens only its own call: without the passcode she can't start calls or record voices
-    assert client.post("/api/calls", headers=grandma, json={"who": "x", "lang": "te"}).status_code == 401
-    assert client.get(f"/api/calls/{code}?after=0&known=0",
-                      headers={"X-Mythree-Call-Key": "wrong", "X-Mythree-Passcode": ""}).status_code == 401
+    # without the link's key, nobody can read the call
+    assert client.get(f"/api/calls/{code}?after=0&known=0", headers={"X-Mythree-Call-Key": "wrong"}).status_code == 404
 
 
 def test_pages_always_load_the_newest_code():
@@ -322,15 +319,13 @@ def test_visitors_still_testing_keep_their_voice_and_the_newcomer_hears_a_standa
     assert forgotten == []
 
 
-def test_the_try_page_is_free_but_family_calls_still_need_the_passcode(monkeypatch):
+def test_no_passcode_is_asked_for_calls_or_the_try_page(monkeypatch):
     monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
-    stranger = {"X-Mythree-Passcode": ""}
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hola")
     monkeypatch.setattr("app.brain.to_english", lambda text: "Hello")
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
-    assert client.post("/api/try/heard", files=wav, headers=stranger).json()["english"] == "Hello"
-    assert client.post("/api/calls", json={"who": "x", "lang": "te"}, headers=stranger).status_code == 401
-    assert client.delete("/api/voices/familyVoice123", headers=stranger).status_code == 401
+    assert client.post("/api/try/heard", files=wav).json()["english"] == "Hello"
+    assert client.post("/api/calls", json={"who": "x", "lang": "te"}).status_code == 200
 
 
 def test_the_free_page_can_greet_or_delete_only_visitor_voices(monkeypatch):
@@ -383,17 +378,19 @@ def test_visitors_hold_at_most_seven_voice_places(monkeypatch):
 def test_guessing_the_passcode_is_stopped_after_ten_wrong_tries(monkeypatch):
     monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
     for i in range(10):
-        assert client.get("/api/hello", headers={"X-Mythree-Passcode": f"guess{i}"}).status_code == 401
+        assert client.get("/api/stats", headers={"X-Mythree-Passcode": f"guess{i}"}).status_code == 401
     # the 11th try is refused, even with the right passcode, until the hour is up
-    assert client.get("/api/hello", headers={"X-Mythree-Passcode": "family-passcode"}).status_code == 429
-    assert client.post("/api/try/heard").status_code != 429   # the free Try page is never locked
+    assert client.get("/api/stats", headers={"X-Mythree-Passcode": "family-passcode"}).status_code == 429
+    assert client.get("/api/hello").status_code != 429   # the rest of Mythree is never locked
 
 
 def test_a_page_asking_without_a_passcode_is_not_a_wrong_guess(monkeypatch):
     monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
+    monkeypatch.setattr("app.voice.try_voices", lambda: {})
+    monkeypatch.setattr("app.voice.characters_left", lambda: 0)
     for _ in range(15):
-        assert client.get("/api/hello", headers={"X-Mythree-Passcode": ""}).status_code == 401
-    assert client.get("/api/hello", headers={"X-Mythree-Passcode": "family-passcode"}).status_code == 200
+        assert client.get("/api/stats", headers={"X-Mythree-Passcode": ""}).status_code == 401
+    assert client.get("/api/stats", headers={"X-Mythree-Passcode": "family-passcode"}).status_code != 401
 
 
 def test_the_try_page_closes_by_itself_after_the_hackathon_week(monkeypatch):

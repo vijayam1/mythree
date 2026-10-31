@@ -26,12 +26,12 @@ def test_no_passcode_needed_when_none_is_set(monkeypatch):
     assert client.get("/api/hello").json() == {"ok": True}
 
 
-def test_passcode_protects_the_senses(monkeypatch):
+def test_only_the_visitors_numbers_need_the_passcode(monkeypatch):
     monkeypatch.setattr("app.main.secret", lambda name: "kokila" if name == "MYTHREE_PASSCODE" else None)
-    assert client.get("/api/hello").status_code == 401
-    assert client.get("/api/hello", headers={"X-Mythree-Passcode": "wrong"}).status_code == 401
-    assert client.get("/api/hello", headers={"X-Mythree-Passcode": "kokila"}).status_code == 200
-    assert client.get("/").status_code == 200   # the page itself still opens
+    assert client.get("/api/hello").status_code == 200   # Mythree itself is open to everyone
+    assert client.get("/api/stats").status_code == 401
+    assert client.get("/api/stats", headers={"X-Mythree-Passcode": "wrong"}).status_code == 401
+    assert client.get("/").status_code == 200
 
 
 def test_too_many_requests_are_slowed_down(monkeypatch):

@@ -55,8 +55,10 @@ def page(name: str) -> HTMLResponse:
     return HTMLResponse(re.sub(r'(src|href)="/static/([\w.-]+)"', fingerprinted, html))
 
 
-# Online, Mythree's senses need a passcode (set as the MYTHREE_PASSCODE secret), and each
-# visitor gets a fair number of requests per minute, so strangers can't use up the credits.
+# Mythree is open to everyone: no passcode (Vijaya took it out on 30 Oct; it kept getting in the
+# way). Each call is still protected by its hidden key, and each visitor gets a fair number of
+# requests per minute, so strangers can't use up the credits. Only Vijaya's Visitors numbers
+# (/api/stats) need the passcode (the MYTHREE_PASSCODE secret).
 REQUESTS_PER_MINUTE = 40
 recent: dict[str, deque] = defaultdict(deque)
 # Guessing the passcode: after WRONG_TRIES wrong passcodes in an hour, a visitor is refused until the hour is up.
@@ -72,7 +74,7 @@ async def guard(request, call_next):
     if request.url.path.startswith("/api/try/") and try_closed():
         return JSONResponse({"detail": TRY_CLOSED}, status_code=410)
     passcode = secret("MYTHREE_PASSCODE")
-    if passcode and not request.url.path.startswith("/api/try/"):   # the Try page is open to everyone
+    if passcode and request.url.path == "/api/stats":
         misses, now = wrong[visitor], time.monotonic()
         while misses and now - misses[0] > 3600:
             misses.popleft()
@@ -80,7 +82,7 @@ async def guard(request, call_next):
             return JSONResponse({"detail": "Too many wrong passcodes. Please try again in an hour. "
                                            "· చాలాసార్లు తప్పు పాస్‌కోడ్. గంట తర్వాత ప్రయత్నించండి."}, status_code=429)
         typed = request.headers.get("x-mythree-passcode", "")
-        if not hmac.compare_digest(typed, passcode) and not await invited(request):
+        if not hmac.compare_digest(typed, passcode):
             if typed:   # a wrong guess (an empty one is just a page asking whether a passcode is needed)
                 misses.append(now)
             return JSONResponse({"detail": "Passcode needed · పాస్‌కోడ్ కావాలి"}, status_code=401)
@@ -91,20 +93,6 @@ async def guard(request, call_next):
         return JSONResponse({"detail": "Too many requests. Please wait a minute. · ఒక నిమిషం ఆగండి."}, status_code=429)
     times.append(now)
     return await call_next(request)
-
-
-async def invited(request) -> bool:
-    """Someone who opened a call's link (with its hidden key) may take part in that one call without
-    the passcode: the caller, who has the passcode, invited them. A grandmother never types a passcode."""
-    found = re.match(r"^/api/calls/(\d{4})(/(join|heard|said|speak|video|ice))?$", request.url.path)
-    key = request.headers.get("x-mythree-call-key", "")
-    if not found or not key:
-        return False
-    try:
-        room = await rooms.find(found.group(1))
-    except rooms.RoomError:
-        return False
-    return bool(room.key) and hmac.compare_digest(room.key, key)
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -163,7 +151,7 @@ async def count_visit(what: str, language: str = ""):
 
 @app.get("/api/stats")
 async def stats():
-    """For Vijaya (behind the passcode): how many people tried Mythree, today and all week."""
+    """For Vijaya (the only thing behind the passcode): how many people tried Mythree, today and all week."""
     if stats_store is not None:
         days = {day: await stats_store.get.aio(day) async for day in stats_store.keys.aio()}
     else:
@@ -205,7 +193,7 @@ def phone():
 
 @app.get("/api/hello")
 def hello():
-    """The page checks here first, so it can ask for the passcode before anyone talks."""
+    """A quick check that the page can reach Mythree."""
     return {"ok": True}
 
 
@@ -304,7 +292,7 @@ VoiceId = Field(default="", max_length=40, pattern=r"^[A-Za-z0-9]*$")
 
 
 class Invite(BaseModel):
-    """Who the caller is calling, so that person only taps one big Answer button (no choosing, no passcode)."""
+    """Who the caller is calling, so that person only taps one big Answer button (no choosing)."""
     who: str = Name                                # e.g. "the grandmother"
     lang: str                                      # the language they speak
     caller: str = Field(default="", max_length=80) # how their screen names the caller, in their language: "మీ మనవడు"

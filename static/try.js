@@ -7,23 +7,11 @@ const TARGET_RATE = 16000;   // Meta wants 16 kHz
 const RECORD_S = 21, SHOWN_S = 20, MAX_SENTENCE_S = 30;   // records 21 s, shows 20: a little spare, so it's never short
 const $ = (id) => document.getElementById(id);
 
-// --- Passcode (the same one testers get for Mythree) ---------------------------
-let passcode = (() => { try { return localStorage.getItem("mythree-passcode") || ""; } catch { return ""; } })();
-
-async function api(url, options = {}) {
-  options.headers = { ...(options.headers || {}), "X-Mythree-Passcode": passcode };
-  const reply = await fetch(url, options);
-  if (reply.status !== 401) return reply;
-  const typed = prompt("Mythree passcode (from the hackathon post)");
-  if (!typed) return reply;
-  passcode = typed.trim();
-  try { localStorage.setItem("mythree-passcode", passcode); } catch { /* private window */ }
-  return api(url, options);
-}
+// --- Talking to the server (open to everyone, no passcode) ------------------
+const api = (url, options = {}) => fetch(url, options);
 async function problemOf(reply) {
   try { return (await reply.json()).detail || "Something went wrong."; } catch { return "Something went wrong."; }
 }
-// The Try page is open to everyone: no passcode needed.
 
 // --- Recording from the microphone ---------------------------------------------
 async function record(onTick, seconds) {

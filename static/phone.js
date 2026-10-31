@@ -17,29 +17,19 @@ const RELATION_WORDS = { grandfather: "the grandfather", grandmother: "the grand
 const RELATION_TE = { grandfather: "తాతగారు", grandmother: "అమ్మమ్మ", grandson: "మనవడు", granddaughter: "మనవరాలు",
   father: "నాన్న", mother: "అమ్మ", son: "కొడుకు", daughter: "కూతురు", friend: "స్నేహితుడు" };
 
-// --- Passcode (online only) --------------------------------------------------
-let passcode = (() => { try { return localStorage.getItem("mythree-passcode") || ""; } catch { return ""; } })();
+// --- Talking to the server --------------------------------------------------
 // Each call's link has a hidden key next to the 4-digit code, so nobody can join or read a call
 // by guessing codes. The phone sends it with every request about the call.
 let callKey = "";
 
 async function api(url, options = {}) {
-  options.headers = { ...(options.headers || {}), "X-Mythree-Passcode": passcode, "X-Mythree-Call-Key": callKey };
-  const reply = await fetch(url, options);
-  if (reply.status !== 401) return reply;
-  const typed = prompt("Mythree passcode · పాస్‌కోడ్");
-  if (!typed) return reply;
-  passcode = typed.trim();
-  try { localStorage.setItem("mythree-passcode", passcode); } catch { /* private window */ }
-  return api(url, options);
+  options.headers = { ...(options.headers || {}), "X-Mythree-Call-Key": callKey };
+  return fetch(url, options);
 }
 const postJson = (url, body) => api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 async function problemOf(reply) {
   try { return (await reply.json()).detail || "Something went wrong."; } catch { return "Something went wrong."; }
 }
-// Ask for the passcode right away, except when the page was opened from a call's link: its hidden
-// key is enough to answer that call, so a grandmother never sees a passcode.
-if (!new URLSearchParams(location.search).get("key")) api("/api/hello");
 
 // --- Demo view (/demo): two phones side by side on one screen, for testing alone ---
 // Each side is this same phone app, so later the two phones simply go to two places.
@@ -73,7 +63,8 @@ async function invited(code, key) {   // opened from a link
   const news = reply?.ok ? await reply.json() : null;
   if (news?.invite && !news.people.b) return showAnswer(code, news.invite);   // the caller chose for them: one button
   $("invite").hidden = false;   // otherwise: the steps and the Join button, not "Start a call"
-  for (const id of ["calling", "start-call", "or"]) $(id).hidden = true;
+  // and no "Record my voice": only the caller records theirs, the invited person just joins
+  for (const id of ["calling", "start-call", "or", "voice-box"]) $(id).hidden = true;
 }
 
 // --- Answering: the invited person (often a grandparent) taps one big button -----
@@ -234,14 +225,12 @@ function invitation() {
     `1. Tap this link: ${link}\n` +
     `2. Choose who you are and the language you speak.\n` +
     `3. Tap the green "Join" button (the code ${call.code} is already filled in).\n` +
-    `4. If it asks for a passcode, type the one I gave you.\n` +
-    `5. Tap the green mic button 🎙️. When it turns red, talk. Pause a little after each sentence.\n\n` +
+    `4. Tap the green mic button 🎙️. When it turns red, talk. Pause a little after each sentence.\n\n` +
     `మైత్రిలో మీకు కాల్ చేస్తున్నాను, ఎవరి భాషలో వాళ్ళు మాట్లాడుకోవచ్చు.\n` +
     `1. ఈ లింక్ నొక్కండి: ${link}\n` +
     `2. మీరు ఎవరు, మీ భాష ఏమిటి, ఎంచుకోండి.\n` +
     `3. గ్రీన్ "Join" బటన్ నొక్కండి. కాల్‌లో జాయిన్ అవుతారు (కోడ్ ${call.code} ముందే ఉంటుంది).\n` +
-    `4. పాస్‌కోడ్ అడిగితే, నేను ఇచ్చింది టైప్ చేయండి.\n` +
-    `5. గ్రీన్ మైక్ బటన్ 🎙️ నొక్కండి. అది ఎరుపు అయ్యాక మాట్లాడండి. ప్రతి మాట తర్వాత కొంచెం ఆగండి.`;
+    `4. గ్రీన్ మైక్ బటన్ 🎙️ నొక్కండి. అది ఎరుపు అయ్యాక మాట్లాడండి. ప్రతి మాట తర్వాత కొంచెం ఆగండి.`;
   const phone = $("their-phone").value.replace(/[^\d]/g, "");   // WhatsApp wants only digits, with country code
   const email = $("their-email").value.trim();
   const words = encodeURIComponent(message);

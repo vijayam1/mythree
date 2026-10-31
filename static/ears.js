@@ -17,21 +17,8 @@ const ui = {
 };
 let ctx, stream, node;
 
-// --- Passcode (online only) --------------------------------------------------
-// Online, Mythree asks for a passcode once; this browser remembers it.
-let passcode = (() => { try { return localStorage.getItem("mythree-passcode") || ""; } catch { return ""; } })();
-
-async function api(url, options = {}) {
-  options.headers = { ...(options.headers || {}), "X-Mythree-Passcode": passcode };
-  const reply = await fetch(url, options);
-  if (reply.status !== 401) return reply;
-  const typed = prompt("Mythree passcode · పాస్‌కోడ్");
-  if (!typed) return reply;
-  passcode = typed.trim();
-  try { localStorage.setItem("mythree-passcode", passcode); } catch { /* private window */ }
-  return api(url, options);
-}
-api("/api/hello");   // ask for the passcode right away, not in the middle of a sentence
+// --- Talking to the server (open to everyone, no passcode) ------------------
+const api = (url, options = {}) => fetch(url, options);
 
 // --- The two people on the call ---------------------------------------------
 // Any two people: each picks a relation, an optional name and a language,
