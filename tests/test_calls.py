@@ -595,3 +595,37 @@ def test_with_the_relay_key_the_phones_get_the_relay_without_port_53(monkeypatch
     assert asked["url"].endswith("/keys/k/credentials/generate-ice-servers") and asked["auth"] == "Bearer t"
     assert servers[1]["urls"] == ["turn:turn.cloudflare.com:3478?transport=udp"] and servers[1]["credential"] == "c"
     assert servers[0]["urls"] == ["stun:stun.cloudflare.com:3478"]
+
+
+def test_an_echo_is_dropped_but_a_real_reply_is_kept(monkeypatch):
+    # 30 Oct: the grandson's phone heard the English played on the other phone and sent it again, 5 times.
+    no_passcode(monkeypatch)
+    english = {"అనుకున్నవన్నీ జరగవు": "Not everything we hope for happens."}
+    monkeypatch.setattr("app.brain.translate", lambda text, *rest: english.get(text, "ఇది కొత్త మాట"))
+    code = client.post("/api/calls", json={"who": "Grandpa", "lang": "te"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"})
+
+    first = client.post(f"/api/calls/{code}/said", json={"person": "a", "text": "అనుకున్నవన్నీ జరగవు"}).json()
+    assert first["n"] == 1
+    # grandpa's phone hears the English played on the grandson's phone: an echo, dropped
+    again = client.post(f"/api/calls/{code}/said", json={"person": "a", "text": "not everything we hope for happens"}).json()
+    assert again["text"] == "" and again.get("echo")
+    # the grandson's phone hears it too: also dropped
+    assert client.post(f"/api/calls/{code}/said", json={"person": "b", "text": "Not everything we hoped for happens."}).json()["text"] == ""
+    # a real reply, and a short one that repeats words, are kept
+    assert client.post(f"/api/calls/{code}/said", json={"person": "b", "text": "Grandpa, that is so true, I miss you"}).json()["n"] == 2
+    assert client.post(f"/api/calls/{code}/said", json={"person": "b", "text": "how are you"}).json()["n"] == 3
+    news = client.get(f"/api/calls/{code}?after=0&known=2").json()
+    assert len(news["messages"]) == 3
+
+
+def test_an_old_sentence_said_again_later_is_not_an_echo(monkeypatch):
+    import time
+    no_passcode(monkeypatch)
+    monkeypatch.setattr("app.brain.translate", lambda text, *rest: "I will come to India next summer")
+    code = client.post("/api/calls", json={"who": "Grandpa", "lang": "te"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"})
+    client.post(f"/api/calls/{code}/said", json={"person": "b", "text": "I will come to India next summer"})
+    later = time.time() + 31
+    monkeypatch.setattr("app.main.time.time", lambda: later)
+    assert client.post(f"/api/calls/{code}/said", json={"person": "b", "text": "I will come to India next summer"}).json()["n"] == 2

@@ -94,7 +94,8 @@ function showAnswer(code, invite) {
   $("answer-btn").hidden = false;
   $("answer-btn").onclick = async () => {
     unlockSound();
-    const reply = await postJson(`/api/calls/${code}/join`, { answer: true });
+    // the voice this phone recorded before (if any), so the answering person speaks in their own voice too
+    const reply = await postJson(`/api/calls/${code}/join`, { answer: true, voice: myVoice });
     if (!reply.ok) return ($("answer-problem").textContent = await problemOf(reply));
     const { person } = await reply.json();
     simple = words;
@@ -732,7 +733,9 @@ async function newPeer(mine, id) {
   }
   const pc = new RTCPeerConnection({ iceServers: routes });
   const line = peer = { pc, id, connected: false };
-  media.getTracks().forEach((t) => pc.addTrack(t, media));
+  // Only the picture goes along, not the real voice: a phone's microphone caught it from the
+  // speaker and sent it again as new words (30 Oct). The translation in the speaker's own voice is enough.
+  media.getVideoTracks().forEach((t) => pc.addTrack(t, media));
   pc.ontrack = ({ streams }) => showThem(streams[0]);
   pc.onconnectionstatechange = () => {
     if (peer !== line) return;

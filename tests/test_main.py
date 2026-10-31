@@ -44,6 +44,19 @@ def test_too_many_requests_are_slowed_down(monkeypatch):
     main.recent.clear()
 
 
+def test_a_calls_news_and_video_notes_are_not_counted(monkeypatch):
+    # Two phones on one Wi-Fi share an address: their "anything new?" and video notes mustn't use up the limit.
+    from app import main
+    monkeypatch.setattr("app.main.secret", lambda name: None)
+    monkeypatch.setattr(main, "REQUESTS_PER_MINUTE", 3)
+    main.recent.clear()
+    paths = ["/api/calls/1234", "/api/calls/1234/ice"] * 5
+    assert all(client.get(p).status_code != 429 for p in paths)
+    assert client.post("/api/calls/1234/video", json={}).status_code != 429
+    assert [client.get("/api/hello").status_code for _ in range(4)] == [200, 200, 200, 429]   # the rest still are
+    main.recent.clear()
+
+
 def test_voices_and_phrase_book_can_come_from_secrets(monkeypatch):
     from app import brain, settings
     monkeypatch.setenv("MYTHREE_VOICES", '{"a": {"elevenlabs": "el-9"}}')

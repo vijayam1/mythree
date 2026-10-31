@@ -4,6 +4,7 @@ It serves the home page and Mythree's senses: ears, brain and voice.
 """
 
 import asyncio
+import difflib
 import hashlib
 import hmac
 import re
@@ -61,6 +62,10 @@ def page(name: str) -> HTMLResponse:
 # (/api/stats) need the passcode (the MYTHREE_PASSCODE secret).
 REQUESTS_PER_MINUTE = 40
 recent: dict[str, deque] = defaultdict(deque)
+# A call's "anything new?", its video notes and its relay pass cost no credits, and two phones on one
+# Wi-Fi (one address) on a video call ask them 40-60 times a minute. They aren't counted: refusing them
+# lost the video notes (30 Oct). Each call's notes have their own limit (rooms.MAX_NOTES).
+NOT_COUNTED = re.compile(r"^/api/calls/\d+(/video|/ice)?$")
 # Guessing the passcode: after WRONG_TRIES wrong passcodes in an hour, a visitor is refused until the hour is up.
 WRONG_TRIES = 10
 wrong: dict[str, deque] = defaultdict(deque)
@@ -86,6 +91,8 @@ async def guard(request, call_next):
             if typed:   # a wrong guess (an empty one is just a page asking whether a passcode is needed)
                 misses.append(now)
             return JSONResponse({"detail": "Passcode needed · పాస్‌కోడ్ కావాలి"}, status_code=401)
+    if NOT_COUNTED.match(request.url.path):
+        return await call_next(request)
     times, now = recent[visitor], time.monotonic()
     while times and now - times[0] > 60:
         times.popleft()
@@ -536,7 +543,9 @@ async def share(room: rooms.Room, person: str, said: str) -> dict:
     lang, to = me["lang"], them["lang"]
     if lang == to:
         raise HTTPException(400, "Choose two different languages")
-    history = [{"who": room.people[m["person"]]["who"], "text": m["text"], "lang": m["lang"]}
+    if echo(room, said):   # the phone heard a voice it already played: drop it quietly, before translating
+        return {"text": "", "translation": "", "echo": True}
+    history =[{"who": room.people[m["person"]]["who"], "text": m["text"], "lang": m["lang"]}
                for m in room.messages]
     try:
         text = await run_in_threadpool(brain.translate, said, lang, to, me["who"], them["who"], history)
@@ -544,12 +553,34 @@ async def share(room: rooms.Room, person: str, said: str) -> dict:
         raise HTTPException(502, "Mythree couldn't translate that just now. Please say it again. "
                                  "మళ్ళీ ఒకసారి చెప్పండి.")
     m = rooms.add(room, {"person": person, "text": said, "lang": lang,
-                         "translation": text, "to": to})
+                         "translation": text, "to": to, "at": time.time()})
     if room.voices.get(person):   # start making the voice now, before the other phone asks for it
         sound = room.sounds[m["n"]] = rooms.Sound()
         room.tasks.add(task := asyncio.create_task(make_voice(sound, text, to, room.voices[person])))
         task.add_done_callback(room.tasks.discard)
     return m
+
+
+# Echoes: a phone's microphone can hear a voice played a moment ago (the other phone in the same room,
+# or its own speaker) and send it again as new words, round and round (30 Oct: the same sentence
+# 5 times). A sentence of 4 words or more that closely matches something said or played in the last
+# ECHO_SECONDS is dropped. Short ones ("how are you?") are kept: real replies often repeat them.
+ECHO_SECONDS = 30
+ECHO_LIKENESS = 0.75
+
+
+def echo(room: rooms.Room, said: str) -> bool:
+    words = lambda text: " ".join(re.findall(r"\w+", text.lower()))
+    new = words(said)
+    if len(new.split()) < 4:
+        return False
+    for m in room.messages[-6:]:
+        if time.time() - m.get("at", 0) > ECHO_SECONDS:
+            continue
+        for old in (words(m["text"]), words(m["translation"])):
+            if new in old or difflib.SequenceMatcher(None, new, old).ratio() >= ECHO_LIKENESS:
+                return True
+    return False
 
 
 async def make_voice(sound: rooms.Sound, text: str, lang: str, voice_id: str):
