@@ -156,7 +156,7 @@ $("join-call").addEventListener("click", async () => {
 });
 
 function enter(code, person, lang) {
-  call = { code, person, lang, people: {}, after: 0 };
+  call = { code, person, lang, people: {}, after: 0, notes: 0 };
   shown.clear();
   $("problem").textContent = "";
   $("setup").hidden = true;
@@ -169,7 +169,10 @@ function enter(code, person, lang) {
 }
 
 $("end").addEventListener("click", () => {
+  if (call) sendNote(call, { kind: "bye" });
   if (ctx) stop();
+  closeVideo();
+  closeMedia();
   hush();
   call = null;
   $("talk").replaceChildren();
@@ -280,7 +283,8 @@ async function follow(mine) {
     let news;
     try {
       const known = Object.keys(mine.people).length;
-      const reply = await api(`/api/calls/${mine.code}?after=${mine.after}&known=${known}`);
+      const reply = await api(`/api/calls/${mine.code}?after=${mine.after}&known=${known}` +
+                              `&person=${mine.person}&notes=${mine.notes}`);
       if (reply.status === 404) { showStatus("This call has ended · కాల్ ముగిసింది"); return; }
       if (!reply.ok) throw new Error(String(reply.status));
       news = await reply.json();
@@ -292,11 +296,14 @@ async function follow(mine) {
     const joined = !them() && news.people[mine.person === "a" ? "b" : "a"];
     mine.people = news.people;
     if (joined) showStatus();
+    if (news.notes?.length) mine.notes = news.notes.at(-1).n;   // (after a restart the numbers start again)
+    for (const n of news.notes || []) onNote(n, mine);
     for (const m of news.messages) {
       mine.after = Math.max(mine.after, m.n);
       if (m.person === mine.person || shown.has(m.n)) continue;   // my own sentences are shown as I say them
       shown.add(m.n);
       lastHeard = Date.now();
+      caption(m.translation);
       say(addLine("theirs", m.translation, m.text), m.translation, m.to, m.n);
     }
   }
@@ -332,13 +339,12 @@ $("mic").addEventListener("click", () => {
 
 async function start() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-    });
+    media ||= await openMedia();
   } catch {
     showStatus("Please allow the microphone · మైక్ అనుమతి ఇవ్వండి");
     return;
   }
+  stream = media;
   ctx = new AudioContext();
   ctx.resume?.();   // started right after Answer (not a tap of its own): make sure it really runs
   demo?.postMessage({ mic: DEMO });   // one microphone for both sides: the other side stops listening
@@ -350,11 +356,12 @@ async function start() {
   stream.getAudioTracks().forEach((t) => (t.onended = () => ctx && stop("Microphone stopped · మైక్ ఆగిపోయింది")));
   lastHeard = Date.now();
   showMic(true);
+  if (hasVideo()) showVideo();
 }
 
 function stop(why) {
   node.disconnect();
-  stream.getTracks().forEach((t) => t.stop());
+  if (!hasVideo()) closeMedia();   // in a video call the camera and the real voice go on; only the listening stops
   ctx.close();
   ctx = null;
   reset();
@@ -377,7 +384,7 @@ function reset() {
 
 function listen(chunk) {
   if (muted) { reset(); lastHeard = Date.now(); return; }   // this phone is speaking: don't hear itself
-  if (Date.now() - lastHeard > QUIET_STOP_MS) {
+  if (!hasVideo() && Date.now() - lastHeard > QUIET_STOP_MS) {   // (on video they may just be looking)
     stop("No one spoke for 3 minutes · 3 నిమిషాలు ఎవరూ మాట్లాడలేదు");
     return;
   }
@@ -488,6 +495,8 @@ const voice = new Audio();
 let unlocked = false, muted = false, queue = Promise.resolve();
 
 function unlockSound() {
+  realVoice.ctx ||= new AudioContext();   // made during a tap, or phones keep it silent
+  realVoice.ctx.resume?.();
   if (unlocked) return;
   unlocked = true;
   voice.src = URL.createObjectURL(toWav([new Float32Array(1600)], TARGET_RATE));   // a tenth of a second of silence
@@ -517,6 +526,7 @@ async function sayNow(line, text, lang, n, mine) {   // in the voice of the pers
   await untilPaused();
   if (call !== mine) return;
   muted = true;
+  dip(true);
   try {
     const sound = await voiced;
     addReplay(line, () => play(sound));
@@ -527,6 +537,7 @@ async function sayNow(line, text, lang, n, mine) {   // in the voice of the pers
     await standardVoice(text, lang);
   } finally {
     muted = false;
+    dip(false);
   }
 }
 
@@ -581,6 +592,203 @@ function standardVoice(text, lang) {
     speechSynthesis.speak(words);
   });
 }
+
+// --- Seeing each other (video) ------------------------------------------------------
+// The picture and the real voice go straight from phone to phone (WebRTC); Mythree only passes
+// on the notes the phones need to find each other. Grandpa's phone ("a" or "b") hears "ready"
+// from the other camera; person "a" then sends an offer ("how to reach me"), and "b" answers.
+// The translation still travels the usual way, and plays loud over the soft real voice.
+const REAL_VOICE = 0.25;          // the other person's real voice, softly: their laugh and tone, under the translation
+const REAL_VOICE_DIPPED = 0.08;   // while their translation plays
+const VIDEO_WAIT_MS = 15000;      // no picture by then: the voice call simply goes on
+const CAMERA = (facing) => ({ facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 20, max: 24 } });
+const VIDEO_KBPS = 600;           // modest, like a WhatsApp call on weak internet: works on village mobile data
+
+let media = null;                 // this phone's camera and microphone, for the whole call
+let peer = null;                  // the line to the other phone: { pc, id, connected }
+let facing = "user";              // front camera; 🔄 turns it around to show the fields or the temple
+let offers = 0, lastOffer = 0, routes = null, videoTimer = null, captionTimer = null;
+const realVoice = { ctx: null, gain: null };
+
+const hasVideo = () => !!media?.getVideoTracks().length;
+
+async function openMedia() {
+  const audio = { echoCancellation: true, noiseSuppression: true, channelCount: 1 };
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio, video: CAMERA(facing) });
+  } catch {
+    return navigator.mediaDevices.getUserMedia({ audio });   // no camera, or not allowed: a voice call, as before
+  }
+}
+
+function closeMedia() {
+  media?.getTracks().forEach((t) => t.stop());
+  media = null;
+}
+
+function sendNote(mine, note) {
+  postJson(`/api/calls/${mine.code}/video`, { person: mine.person, ...note }).catch(() => {});
+}
+
+function showVideo() {   // my camera is on: show it small, and tell the other phone
+  if (call.video) return;
+  call.video = true;
+  $("my-video").srcObject = media;
+  $("my-video").play().catch(() => {});
+  $("video").hidden = false;
+  videoNote("Waiting for their camera… · వాళ్ళ కెమెరా కోసం చూస్తున్నాం…");
+  sendNote(call, { kind: "ready" });
+  clearTimeout(videoTimer);
+  videoTimer = setTimeout(() => {
+    if (peer?.connected) return;
+    videoNote("The video couldn't connect. The voice call goes on · వీడియో రాలేదు, మాటలు కొనసాగుతాయి");
+    videoTimer = setTimeout(() => { if (!peer?.connected) $("video").hidden = true; }, 6000);
+  }, VIDEO_WAIT_MS);
+}
+
+function videoNote(text) {
+  $("video-note").textContent = text;
+}
+
+function onNote(note, mine) {
+  if (note.kind === "ready") {
+    if (!note.reply && hasVideo()) sendNote(mine, { kind: "ready", reply: true });   // "me too"
+    if (mine.person === "a") offer(mine);
+  } else if (note.kind === "offer" && mine.person === "b") {
+    answer(note, mine);
+  } else if (note.kind === "answer" && mine.person === "a" && peer?.id === note.id) {
+    peer.pc.setRemoteDescription({ type: "answer", sdp: note.sdp }).catch(() => {});
+  } else if (note.kind === "bye") {
+    closeVideo();
+  }
+}
+
+async function offer(mine) {
+  if (!hasVideo() || call !== mine || Date.now() - lastOffer < 4000) return;   // both said "ready" at once: one offer
+  lastOffer = Date.now();
+  const id = ++offers;
+  const pc = await newPeer(mine, id);
+  await pc.setLocalDescription(await pc.createOffer());
+  await gathered(pc);
+  if (peer?.pc === pc) sendNote(mine, { kind: "offer", id, sdp: pc.localDescription.sdp });
+}
+
+async function answer(note, mine) {
+  if (!hasVideo() || call !== mine) return;
+  const pc = await newPeer(mine, note.id);
+  try {
+    await pc.setRemoteDescription({ type: "offer", sdp: note.sdp });
+    await pc.setLocalDescription(await pc.createAnswer());
+  } catch {
+    return;
+  }
+  await gathered(pc);
+  if (peer?.pc === pc) sendNote(mine, { kind: "answer", id: note.id, sdp: pc.localDescription.sdp });
+}
+
+async function newPeer(mine, id) {
+  closePeer();
+  if (!routes) {   // how the phones may reach each other: direct, or through the relay
+    const reply = await api(`/api/calls/${mine.code}/ice`).catch(() => null);
+    routes = reply?.ok ? (await reply.json()).iceServers : [];
+  }
+  const pc = new RTCPeerConnection({ iceServers: routes });
+  const line = peer = { pc, id, connected: false };
+  media.getTracks().forEach((t) => pc.addTrack(t, media));
+  pc.ontrack = ({ streams }) => showThem(streams[0]);
+  pc.onconnectionstatechange = () => {
+    if (peer !== line) return;
+    if (pc.connectionState === "connected") {
+      line.connected = true;
+      videoNote("");
+      $("video").hidden = false;
+      modest(pc);
+    } else if (pc.connectionState === "failed" && mine.person === "a") {
+      videoNote("Connecting the video again… · వీడియో మళ్ళీ కలుపుతున్నాం…");
+      offer(mine);
+    }
+  };
+  return pc;
+}
+
+// The whole "how to reach me" in one note (not piece by piece): fewer trips through Mythree.
+function gathered(pc) {
+  return new Promise((done) => {
+    if (pc.iceGatheringState === "complete") return done();
+    const timer = setTimeout(done, 3000);
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") { clearTimeout(timer); done(); }
+    });
+  });
+}
+
+function modest(pc) {
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind !== "video") continue;
+    const settings = sender.getParameters();
+    if (!settings.encodings?.length) continue;
+    settings.encodings[0].maxBitrate = VIDEO_KBPS * 1000;
+    sender.setParameters(settings).catch(() => {});
+  }
+}
+
+function showThem(stream) {
+  const picture = $("their-video");
+  if (picture.srcObject === stream) return;
+  picture.srcObject = stream;   // muted here: the real voice plays through realVoice, where it can be made soft
+  picture.play().catch(() => {});
+  if (!realVoice.ctx || !stream.getAudioTracks().length) return;
+  realVoice.gain?.disconnect();
+  realVoice.gain = realVoice.ctx.createGain();
+  realVoice.gain.gain.value = REAL_VOICE;   // (phones ignore a video's own volume, so it goes through here)
+  realVoice.ctx.createMediaStreamSource(stream).connect(realVoice.gain).connect(realVoice.ctx.destination);
+  realVoice.ctx.resume?.();
+}
+
+function dip(down) {   // the real voice steps aside while the translation speaks
+  const gain = realVoice.gain;
+  if (gain) gain.gain.setTargetAtTime(down ? REAL_VOICE_DIPPED : REAL_VOICE, realVoice.ctx.currentTime, 0.15);
+}
+
+function caption(text) {   // the translation in big letters on the picture, before the voice is ready
+  $("caption").textContent = text;
+  clearTimeout(captionTimer);
+  captionTimer = setTimeout(() => ($("caption").textContent = ""), 12000);
+}
+
+function closePeer() {
+  peer?.pc.close();
+  peer = null;
+}
+
+function closeVideo() {
+  closePeer();
+  clearTimeout(videoTimer);
+  realVoice.gain?.disconnect();
+  realVoice.gain = null;
+  $("their-video").srcObject = $("my-video").srcObject = null;
+  $("caption").textContent = "";
+  $("video").hidden = true;
+  if (call) call.video = false;
+  routes = null;
+}
+
+$("flip").addEventListener("click", async () => {   // front camera ↔ back camera
+  if (!hasVideo()) return;
+  const old = media.getVideoTracks()[0];
+  const want = facing === "user" ? "environment" : "user";
+  old.stop();   // some phones open only one camera at a time
+  const camera = (f) => navigator.mediaDevices.getUserMedia({ video: CAMERA(f) }).then((s) => s.getVideoTracks()[0], () => null);
+  let fresh = await camera(want);
+  if (fresh) facing = want;
+  else fresh = await camera(facing);   // only one camera: keep the one we had
+  if (!fresh) return;
+  media.removeTrack(old);
+  media.addTrack(fresh);
+  peer?.pc.getSenders().find((s) => s.track === old)?.replaceTrack(fresh);
+  $("my-video").classList.toggle("mirror", facing === "user");
+  $("my-video").srcObject = media;
+});
 
 // --- Recording my own voice (with my consent) ---------------------------------
 const READ_THIS = {

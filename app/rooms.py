@@ -17,6 +17,7 @@ ROOM_HOURS = 3      # a room nobody has used for this long is forgotten
 MAX_ROOMS = 100     # enough for testers and judges; stops strangers filling the memory
 WAIT_SECONDS = 25   # a phone waits this long for news before asking again
 KEEP_SOUNDS = 6     # voices kept for the newest sentences only
+MAX_NOTES = 40      # video notes per person per call (a handful is normal); stops a runaway phone
 
 store = None        # online: a modal.Dict, set by modal_app.py. Locally and in tests: memory only.
 saving: set = set() # copies being written to the store right now
@@ -54,6 +55,7 @@ class Room:
         self.messages: list[dict] = []
         self.sounds: dict[int, Sound] = {}   # sentence number → its voice, made early
         self.tasks: set = set()              # voices being made right now
+        self.notes: dict[str, list] = {"a": [], "b": []}   # video notes waiting for each person (memory only)
         self.news = asyncio.Event()          # set whenever something changes, to wake waiting phones
         self.used = time.monotonic()
         self.dirty = False                   # changed since the last copy to the store
@@ -63,13 +65,23 @@ class Room:
 
     def changed(self):
         """Wake every phone that is waiting, then get ready for the next change."""
+        self.wake()
+        save(self)
+
+    def wake(self):
         self.used = time.monotonic()
         self.news.set()
         self.news = asyncio.Event()
-        save(self)
 
-    def state(self, after: int = 0) -> dict:
-        return {"code": self.code, "people": self.people, "invite": self.invite, "messages": self.messages[after:]}
+    def new_notes(self, person: str, seen: int) -> list[dict]:
+        """The video notes for `person` after number `seen`. After a restart the list starts again
+        from 1, so a phone that has seen more than there are gets them all."""
+        box = self.notes.get(person, [])
+        return box[seen:] if seen <= len(box) else box
+
+    def state(self, after: int = 0, person: str = "", seen: int = 0) -> dict:
+        return {"code": self.code, "people": self.people, "invite": self.invite, "messages": self.messages[after:],
+                "notes": self.new_notes(person, seen)}
 
 
 rooms: dict[str, Room] = {}
@@ -175,12 +187,21 @@ def add(room: Room, message: dict) -> dict:
     return message
 
 
-async def wait(room: Room, after: int, known: int) -> dict:
-    """Answer as soon as there is news (a message after number `after`, or more than `known` people),
-    or after WAIT_SECONDS."""
-    if len(room.messages) <= after and len(room.people) <= known:
+def note(room: Room, person: str, note: dict):
+    """A video note (how to reach my phone) from `person`, kept for the other person to collect."""
+    box = room.notes["b" if person == "a" else "a"]
+    if len(box) >= MAX_NOTES:
+        raise RoomError("Too many video notes for this call.")
+    box.append({**note, "n": len(box) + 1})
+    room.wake()   # not copied to the store: after a restart the phones simply say hello again
+
+
+async def wait(room: Room, after: int, known: int, person: str = "", seen: int = 0) -> dict:
+    """Answer as soon as there is news (a message after number `after`, more than `known` people,
+    or a video note for `person` after number `seen`), or after WAIT_SECONDS."""
+    if len(room.messages) <= after and len(room.people) <= known and not room.new_notes(person, seen):
         try:
             await asyncio.wait_for(room.news.wait(), WAIT_SECONDS)
         except TimeoutError:
             pass
-    return room.state(after)
+    return room.state(after, person, seen)

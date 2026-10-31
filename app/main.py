@@ -11,6 +11,7 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -95,7 +96,7 @@ async def guard(request, call_next):
 async def invited(request) -> bool:
     """Someone who opened a call's link (with its hidden key) may take part in that one call without
     the passcode: the caller, who has the passcode, invited them. A grandmother never types a passcode."""
-    found = re.match(r"^/api/calls/(\d{4})(/(join|heard|said|speak))?$", request.url.path)
+    found = re.match(r"^/api/calls/(\d{4})(/(join|heard|said|speak|video|ice))?$", request.url.path)
     key = request.headers.get("x-mythree-call-key", "")
     if not found or not key:
         return False
@@ -372,9 +373,63 @@ async def join_call(code: str, me: Person, key: str = CallKey):
 
 
 @app.get("/api/calls/{code}")
-async def call_news(code: str, after: int = 0, known: int = 0, key: str = CallKey):
-    """Wait for news: who is on the call, and the sentences after number `after`."""
-    return await rooms.wait(await room_or_404(code, key), after, known)
+async def call_news(code: str, after: int = 0, known: int = 0, person: str = "", notes: int = 0,
+                    key: str = CallKey):
+    """Wait for news: who is on the call, the sentences after number `after`, and the video notes
+    for `person` after number `notes`."""
+    return await rooms.wait(await room_or_404(code, key), after, known, person, notes)
+
+
+# --- Seeing each other (video) ----------------------------------------------------
+# The picture and the real voice travel straight from phone to phone (WebRTC), not through Mythree.
+# Mythree only passes on the notes the two phones need to find each other: "my camera is ready",
+# then an offer and an answer ("how to reach me"). No model is involved in the video.
+
+class VideoNote(BaseModel):
+    person: str
+    kind: str = Field(pattern=r"^(ready|offer|answer|bye)$")
+    id: int = Field(default=0, ge=0)                    # which offer an answer belongs to
+    reply: bool = False                                 # a "ready" sent back to a "ready" (not answered again)
+    sdp: str = Field(default="", max_length=20000)     # the phone's "how to reach me", written by the browser
+
+
+@app.post("/api/calls/{code}/video")
+async def video_note(code: str, note: VideoNote, key: str = CallKey):
+    """One phone's video note, kept for the other phone (it collects it with the call's news)."""
+    room = await room_or_404(code, key)
+    the_two(room, note.person)
+    try:
+        rooms.note(room, note.person, note.model_dump(exclude={"person"}))
+    except rooms.RoomError as e:
+        raise HTTPException(429, str(e))
+    return {"ok": True}
+
+
+# When a home or mobile network blocks a direct line between the phones (common on mobile data),
+# the video goes through a relay (TURN). Cloudflare's relay is used when its key is in the secrets;
+# without it, only direct lines work (fine on the same Wi-Fi). Cost: about $0.05 per GB.
+STUN = [{"urls": ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"]}]
+TURN_URL = "https://rtc.live.cloudflare.com/v1/turn/keys/{}/credentials/generate-ice-servers"
+TURN_HOURS = 4
+
+
+@app.get("/api/calls/{code}/ice")
+async def video_routes(code: str, key: str = CallKey):
+    """How the phones may reach each other: direct (STUN), and through the relay (TURN) if set up."""
+    await room_or_404(code, key)
+    turn_id, turn_token = secret("TURN_KEY_ID"), secret("TURN_KEY_API_TOKEN")
+    if not (turn_id and turn_token):
+        return {"iceServers": STUN}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            reply = await client.post(TURN_URL.format(turn_id), json={"ttl": TURN_HOURS * 3600},
+                                      headers={"Authorization": f"Bearer {turn_token}"})
+        servers = reply.json()["iceServers"] if reply.status_code in (200, 201) else []
+    except (httpx.HTTPError, ValueError, KeyError):
+        servers = []
+    for server in servers:   # browsers block port 53, and waiting for it only slows the start
+        server["urls"] = [u for u in server.get("urls", []) if ":53?" not in u and not u.endswith(":53")]
+    return {"iceServers": servers or STUN}
 
 
 @app.post("/api/calls/{code}/said")

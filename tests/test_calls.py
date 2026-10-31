@@ -496,3 +496,105 @@ def test_when_live_listening_fails_the_phone_is_told_to_use_the_old_way(monkeypa
         line.send_json({"key": key, "person": "a"})
         assert "error" in line.receive_json()
     assert client.get(f"/api/calls/{code}?after=0&known=0").json()["messages"] == []
+
+
+# --- Seeing each other (video) --------------------------------------------------------
+
+def video_call(monkeypatch):
+    no_passcode(monkeypatch)
+    code = client.post("/api/calls", json={"who": "Grandpa", "lang": "te"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"})
+    return code
+
+
+def test_the_phones_pass_video_notes_through_the_call(monkeypatch):
+    code = video_call(monkeypatch)
+    client.post(f"/api/calls/{code}/video", json={"person": "b", "kind": "ready"})
+    news = client.get(f"/api/calls/{code}?after=0&known=2&person=a&notes=0").json()   # Grandpa's phone
+    assert [(n["kind"], n["n"]) for n in news["notes"]] == [("ready", 1)]
+
+    offer = {"person": "a", "kind": "offer", "id": 7, "sdp": "v=0 grandpa"}
+    assert client.post(f"/api/calls/{code}/video", json=offer).json() == {"ok": True}
+    news = client.get(f"/api/calls/{code}?after=0&known=2&person=b&notes=0").json()   # the grandson's phone
+    assert news["notes"][0]["kind"] == "offer" and news["notes"][0]["id"] == 7
+    assert news["notes"][0]["sdp"] == "v=0 grandpa"
+    # notes already seen are not sent again, and a note never comes back to its own sender
+    # (known=1: answer at once, as there is "news" of a second person)
+    assert client.get(f"/api/calls/{code}?after=0&known=1&person=b&notes=1").json()["notes"] == []
+    assert client.get(f"/api/calls/{code}?after=0&known=1&person=a&notes=1").json()["notes"] == []
+
+
+def test_a_waiting_phone_wakes_up_for_a_video_note(monkeypatch):
+    code = video_call(monkeypatch)
+    room = rooms.rooms[code]
+
+    async def wait_and_note():
+        waiting = asyncio.create_task(rooms.wait(room, 0, 2, "b", 0))
+        await asyncio.sleep(0.05)
+        rooms.note(room, "a", {"kind": "ready"})
+        return await asyncio.wait_for(waiting, 2)
+    assert asyncio.run(wait_and_note())["notes"][0]["kind"] == "ready"
+
+
+def test_after_a_restart_a_phone_gets_the_new_notes_from_the_start(monkeypatch):
+    code = video_call(monkeypatch)
+    client.post(f"/api/calls/{code}/video", json={"person": "a", "kind": "ready"})
+    # the phone had seen 5 notes before the restart; the new list has only 1
+    assert len(client.get(f"/api/calls/{code}?after=0&known=2&person=b&notes=5").json()["notes"]) == 1
+
+
+def test_video_notes_need_the_hidden_key_and_are_checked(monkeypatch):
+    code = video_call(monkeypatch)
+    note = {"person": "a", "kind": "ready"}
+    assert client.post(f"/api/calls/{code}/video", json=note, headers={"X-Mythree-Call-Key": "wrong"}).status_code == 404
+    assert client.post(f"/api/calls/{code}/video", json={**note, "kind": "virus"}).status_code == 422
+    assert client.post(f"/api/calls/{code}/video", json={**note, "person": "z"}).status_code == 400
+    assert client.post(f"/api/calls/{code}/video", json={**note, "sdp": "x" * 20001}).status_code == 422
+    for _ in range(rooms.MAX_NOTES):
+        client.post(f"/api/calls/{code}/video", json=note)
+    assert client.post(f"/api/calls/{code}/video", json=note).status_code == 429
+
+
+def test_an_invited_grandparent_sends_video_notes_without_the_passcode(monkeypatch):
+    no_passcode(monkeypatch)
+    code = client.post("/api/calls", json={"who": "Grandson", "lang": "en"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "Grandpa", "lang": "te"})
+    monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
+    grandpa = {"X-Mythree-Passcode": ""}   # he has only the link, with its hidden key
+    assert client.post(f"/api/calls/{code}/video", json={"person": "b", "kind": "ready"}, headers=grandpa).status_code == 200
+    assert client.get(f"/api/calls/{code}/ice", headers=grandpa).status_code == 200
+
+
+def test_without_the_relay_key_the_phones_try_a_direct_line(monkeypatch):
+    code = video_call(monkeypatch)
+    servers = client.get(f"/api/calls/{code}/ice").json()["iceServers"]
+    assert all(u.startswith("stun:") for s in servers for u in s["urls"])
+
+
+def test_with_the_relay_key_the_phones_get_the_relay_without_port_53(monkeypatch):
+    code = video_call(monkeypatch)
+    monkeypatch.setattr("app.main.secret", lambda name: {"TURN_KEY_ID": "k", "TURN_KEY_API_TOKEN": "t"}.get(name))
+    asked = {}
+
+    class Reply:
+        status_code = 201
+
+        def json(self):
+            return {"iceServers": [{"urls": ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"]},
+                                   {"urls": ["turn:turn.cloudflare.com:3478?transport=udp",
+                                             "turn:turn.cloudflare.com:53?transport=udp"],
+                                    "username": "u", "credential": "c"}]}
+
+    class Client:
+        def __init__(self, **_): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_): pass
+
+        async def post(self, url, json, headers):
+            asked.update(url=url, ttl=json["ttl"], auth=headers["Authorization"])
+            return Reply()
+    monkeypatch.setattr("app.main.httpx.AsyncClient", Client)
+    servers = client.get(f"/api/calls/{code}/ice").json()["iceServers"]
+    assert asked["url"].endswith("/keys/k/credentials/generate-ice-servers") and asked["auth"] == "Bearer t"
+    assert servers[1]["urls"] == ["turn:turn.cloudflare.com:3478?transport=udp"] and servers[1]["credential"] == "c"
+    assert servers[0]["urls"] == ["stun:stun.cloudflare.com:3478"]
