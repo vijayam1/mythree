@@ -202,7 +202,7 @@ function showMic(on) {
 
 async function send(wav) {
   const line = document.createElement("li");
-  line.innerHTML = '<div class="said"></div><div class="english"></div><div class="status">Hearing and translating… (a few seconds)</div>';
+  line.innerHTML = '<div class="said"></div><div class="english"></div><div class="status">Hearing and translating… (a few seconds)</div><div class="meta-work"></div>';
   $("lines").prepend(line);
   const form = new FormData();
   form.append("audio", wav, "sentence.wav");
@@ -210,7 +210,8 @@ async function send(wav) {
   const reply = await api("/api/try/heard", { method: "POST", body: form });
   const status = line.querySelector(".status");
   if (!reply.ok) { status.textContent = await problemOf(reply); return; }
-  const { text, english } = await reply.json();
+  const { text, english, meta } = await reply.json();
+  metaAtWork(line.querySelector(".meta-work"), meta);
   if (!text) {
     status.textContent = "Mythree didn't hear any words. Speak a little louder, for a few seconds, then tap the red button.";
     return;
@@ -220,6 +221,19 @@ async function send(wav) {
   status.textContent = myVoice ? "Speaking in your voice…" : "";
   await speak(line, english);
   status.textContent = "";
+}
+
+// "Meta at work", for the hackathon demo: which Meta model heard the sentence, which translated it, and how fast.
+const META_JOBS = { hear: ["👂", "heard"], translate: ["🧠", "translated"] };
+
+function metaAtWork(box, work) {
+  for (const w of work || []) {
+    const [icon, did] = META_JOBS[w.job] || ["✨", "worked"];
+    const where = w.where === "on Baseten" ? " on Baseten" : w.where === "Meta API" ? " (Meta API)" : "";
+    const row = document.createElement("div");
+    row.textContent = `${icon} Meta · ${w.model}${where} · ${did} in ${w.s} s`;
+    box.append(row);
+  }
 }
 
 // --- Speaking: the visitor's own voice, or a standard one -------------------------

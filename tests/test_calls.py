@@ -31,7 +31,7 @@ def test_two_phones_talk(monkeypatch):
     no_passcode(monkeypatch)
     heard = {}
 
-    def fake_translate(text, lang, to, speaker, listener, history):
+    def fake_translate(text, lang, to, speaker, listener, history, work):
         heard.update(lang=lang, to=to, speaker=speaker, listener=listener, history=history)
         return "Hello Babu"
     monkeypatch.setattr("app.brain.translate", fake_translate)
@@ -254,9 +254,10 @@ def test_try_page_any_language_into_english_in_your_own_voice(monkeypatch):
     no_passcode(monkeypatch)
     assert client.get("/try").status_code == 200
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "मेरा नाम प्रिया है")
-    monkeypatch.setattr("app.brain.to_english", lambda text: "My name is Priya")
+    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "My name is Priya")
     m = client.post("/api/try/heard", files={"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}).json()
-    assert m == {"text": "मेरा नाम प्रिया है", "english": "My name is Priya"}   # Hindi stays Hindi here
+    assert (m["text"], m["english"]) == ("मेरा नाम प्रिया है", "My name is Priya")   # Hindi stays Hindi here
+    assert [w["model"] for w in m["meta"]] == ["Muse Voice Transcribe"]   # shown under the sentence
     spoken = []
     monkeypatch.setattr("app.voice.speak_as", lambda text, lang, v: spoken.append((text, lang, v)) or iter([b"mp3"]))
     assert client.post("/api/try/speak", json={"text": "My name is Priya", "voice": "visitorVoice1"}).content == b"mp3"
@@ -298,7 +299,7 @@ def test_try_page_tells_the_ears_the_visitors_language(monkeypatch):
     no_passcode(monkeypatch)
     told = []
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: told.append(languages) or "ಮಂಚಿತನ")
-    monkeypatch.setattr("app.brain.to_english", lambda text: "goodness")
+    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "goodness")
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
     m = client.post("/api/try/heard", files=wav, data={"language": "Telugu"}).json()
     assert told == [["Telugu"]] and m["text"] == "మంచితన"   # Kannada letters that slipped through → Telugu
@@ -322,7 +323,7 @@ def test_visitors_still_testing_keep_their_voice_and_the_newcomer_hears_a_standa
 def test_no_passcode_is_asked_for_calls_or_the_try_page(monkeypatch):
     monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hola")
-    monkeypatch.setattr("app.brain.to_english", lambda text: "Hello")
+    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "Hello")
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
     assert client.post("/api/try/heard", files=wav).json()["english"] == "Hello"
     assert client.post("/api/calls", json={"who": "x", "lang": "te"}).status_code == 200
@@ -344,7 +345,7 @@ def test_the_free_page_has_a_daily_limit(monkeypatch):
     no_passcode(monkeypatch)
     from app import main
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hola")
-    monkeypatch.setattr("app.brain.to_english", lambda text: "Hello")
+    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "Hello")
     monkeypatch.setattr(main, "try_today", {"day": __import__("time").strftime("%Y-%m-%d"), "count": main.TRY_PER_DAY})
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
     reply = client.post("/api/try/heard", files=wav)
@@ -408,7 +409,7 @@ def test_the_visitors_page_counts_numbers_only(monkeypatch):
     from app import main
     main.stats_days.clear()
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "నమస్తే")
-    monkeypatch.setattr("app.brain.to_english", lambda text: "Hello")
+    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "Hello")
     monkeypatch.setattr("app.voice.try_voices", lambda: {"visitor1": 0})
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
     client.post("/api/try/heard", files=wav, data={"language": "Telugu"})
@@ -476,6 +477,24 @@ def test_live_listening_hears_while_speaking(monkeypatch):
     assert PretendLiveEars.told == ["Telugu"] and len(PretendLiveEars.heard) == 2
     news = client.get(f"/api/calls/{code}?after=0&known=0").json()   # the grandson's phone gets it
     assert [x["translation"] for x in news["messages"]] == ["Hello Babu"]
+
+
+def test_both_phones_see_which_meta_models_did_the_work(monkeypatch):
+    code, key = live_call(monkeypatch)
+
+    def translate(*a):
+        a[-1].append({"job": "translate", "model": "Muse Spark Open", "where": "on Baseten", "s": 1.3})
+        return "Hello Babu"
+    monkeypatch.setattr("app.brain.translate", translate)
+    with client.websocket_connect(f"/api/calls/{code}/live") as line:
+        line.send_json({"key": key, "person": "a"})
+        line.receive_json()
+        line.send_json({"end": True})
+        m = line.receive_json()
+    assert [(w["model"], w["where"]) for w in m["meta"]] == [("Muse Voice Transcribe", "live"),
+                                                             ("Muse Spark Open", "on Baseten")]
+    news = client.get(f"/api/calls/{code}?after=0&known=0").json()   # the grandson's phone sees the same
+    assert news["messages"][0]["meta"] == m["meta"]
 
 
 def test_live_listening_needs_the_hidden_key(monkeypatch):
@@ -629,3 +648,30 @@ def test_an_old_sentence_said_again_later_is_not_an_echo(monkeypatch):
     later = time.time() + 31
     monkeypatch.setattr("app.main.time.time", lambda: later)
     assert client.post(f"/api/calls/{code}/said", json={"person": "b", "text": "I will come to India next summer"}).json()["n"] == 2
+
+
+from app.voice import still_there as REAL_STILL_THERE   # (before the tests' stand-in replaces it)
+
+
+def test_a_voice_that_is_gone_is_not_used_and_the_phone_is_told(monkeypatch):
+    # 31 Oct: a phone remembered a voice ElevenLabs no longer had, so every sentence quietly used the standard voice.
+    no_passcode(monkeypatch)
+    monkeypatch.setattr("app.voice.still_there", lambda v: v != "deletedVoice1")
+    start = client.post("/api/calls", json={"who": "Grandpa", "lang": "te", "voice": "grandpaVoice1"}).json()
+    assert start["voice_gone"] is False
+    joined = client.post(f"/api/calls/{start['code']}/join", json={"who": "Grandson", "lang": "en", "voice": "deletedVoice1"}).json()
+    assert joined["voice_gone"] is True
+    from app import rooms
+    assert rooms.rooms[start["code"]].voices == {"a": "grandpaVoice1", "b": ""}
+    no_voice = client.post("/api/calls", json={"who": "Grandma", "lang": "te"}).json()
+    assert no_voice["voice_gone"] is False   # nothing recorded is not "gone"
+
+
+def test_still_there_asks_elevenlabs(monkeypatch):
+    from app import voice
+    monkeypatch.setattr("app.voice.still_there", REAL_STILL_THERE)   # the real one, not the tests' stand-in
+    monkeypatch.setattr("app.voice.secret", lambda name: "key")
+    answers = {"live1": 200, "gone1": 400, "busy1": 503}
+    monkeypatch.setattr("app.voice.httpx.get", lambda url, **kw: type("R", (), {"status_code": answers[url.rsplit("/", 1)[1]]})())
+    assert voice.still_there("live1") and not voice.still_there("gone1") and voice.still_there("busy1")
+    assert not voice.still_there("")

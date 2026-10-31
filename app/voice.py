@@ -116,6 +116,21 @@ def try_voices() -> dict[str, float]:
             if v.get("name") == TRY_NAME}
 
 
+def still_there(voice: str) -> bool:
+    """Is this recorded voice still at ElevenLabs? A phone may remember a voice that was deleted since
+    (31 Oct: every sentence from one phone fell back to the standard voice, and nobody knew why)."""
+    key = secret("ELEVENLABS_API_KEY")
+    if not voice:
+        return False
+    if not key:
+        return True   # can't tell: keep it, as before
+    try:
+        reply = httpx.get(f"{ELEVENLABS}/voices/{voice}", headers={"xi-api-key": key}, timeout=10)
+    except httpx.HTTPError:
+        return True   # can't tell right now: keep it, as before
+    return reply.status_code == 200 or reply.status_code >= 500
+
+
 def forget(voice: str):
     """Delete a voice someone recorded in the app."""
     key = secret("ELEVENLABS_API_KEY")

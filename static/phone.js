@@ -97,11 +97,12 @@ function showAnswer(code, invite) {
     // the voice this phone recorded before (if any), so the answering person speaks in their own voice too
     const reply = await postJson(`/api/calls/${code}/join`, { answer: true, voice: myVoice });
     if (!reply.ok) return ($("answer-problem").textContent = await problemOf(reply));
-    const { person } = await reply.json();
+    const joined = await reply.json();
     simple = words;
     document.body.classList.add("simple");
     $("answer").hidden = true;
-    enter(code, person, invite.lang);
+    enter(code, joined.person, invite.lang);
+    if (joined.voice_gone) forgetVoice();
     showMic(false);   // her words under the mic, in her language
     start();   // the mic turns on by itself: there is nothing to press, just talk
   };
@@ -132,9 +133,10 @@ $("start-call").addEventListener("click", async () => {
   const mine = me();
   const reply = await postJson("/api/calls", mine);
   if (!reply.ok) return ($("problem").textContent = await problemOf(reply));
-  const { code, person, key } = await reply.json();
+  const { code, person, key, voice_gone } = await reply.json();
   callKey = key;
   enter(code, person, mine.lang);
+  if (voice_gone) { forgetVoice(); showMic(false, VOICE_GONE); }
 });
 
 $("join-call").addEventListener("click", async () => {
@@ -149,9 +151,21 @@ $("join-call").addEventListener("click", async () => {
     for (const id of ["calling", "start-call", "or"]) $(id).hidden = false;
   }
   if (!reply.ok) return ($("problem").textContent = await problemOf(reply));
-  const { person } = await reply.json();
+  const { person, voice_gone } = await reply.json();
   enter(code, person, mine.lang);
+  if (voice_gone) { forgetVoice(); showMic(false, VOICE_GONE); }
 });
+
+// The voice this phone remembered no longer exists at ElevenLabs (deleted since): forget it, so the
+// person can record it again, instead of quietly using the standard voice in every call.
+const VOICE_GONE = "Your recorded voice is gone, so a standard voice is used. After the call, record it again · " +
+                   "మీ గొంతు రికార్డింగ్ పోయింది. కాల్ తర్వాత మళ్ళీ రికార్డ్ చేయండి";
+
+function forgetVoice() {
+  myVoice = "";
+  me();   // saves this phone's choices, now without the voice
+  showVoice();
+}
 
 function rememberedCall() {
   try {
@@ -192,7 +206,7 @@ function enter(code, person, lang, news) {
       call.after = m.n;
       shown.add(m.n);
       const mine = m.person === person;
-      addLine(mine ? "mine" : "theirs", mine ? m.text : m.translation, mine ? m.translation : m.text);
+      metaAtWork(addLine(mine ? "mine" : "theirs", mine ? m.text : m.translation, mine ? m.translation : m.text), m.meta);
     }
   }
   $("problem").textContent = "";
@@ -211,6 +225,7 @@ $("end").addEventListener("click", () => {
   if (ctx) stop();
   closeVideo();
   closeMedia();
+  showCamera(false);
   hush();
   call = null;
   $("talk").replaceChildren();
@@ -343,7 +358,9 @@ async function follow(mine) {
       shown.add(m.n);
       lastHeard = Date.now();
       caption(m.translation);
-      say(addLine("theirs", m.translation, m.text), m.translation, m.to, m.n);
+      const line = addLine("theirs", m.translation, m.text);
+      metaAtWork(line, m.meta);
+      say(line, m.translation, m.to, m.n);
     }
   }
 }
@@ -362,6 +379,32 @@ function addLine(kind, big, small) {
   return line;
 }
 
+// "Meta at work", for the hackathon demo: under each sentence, which Meta model heard it and which
+// translated it, and how long each took. (Later this can become a choice for families.)
+const META_JOBS = { hear: ["👂", "heard"], translate: ["🧠", "translated"] };
+
+function metaAtWork(line, work) {
+  if (!work?.length) return;
+  const box = document.createElement("div");
+  box.className = "meta-work";
+  for (const w of work) {
+    const [icon, did] = META_JOBS[w.job] || ["✨", "worked"];
+    const where = w.where === "on Baseten" ? " on Baseten" : w.where === "Meta API" ? " (Meta API)" : "";
+    const row = document.createElement("div");
+    row.textContent = `${icon} Meta · ${w.model}${where} · ${did}${w.where === "live" ? " live" : ""} in ${w.s} s`;
+    box.append(row);
+  }
+  line.append(box);
+}
+
+function metaWorking(line, words, doing) {   // while a Meta model is still at work on my sentence
+  line.textContent = words;
+  const box = document.createElement("div");
+  box.className = "meta-work working";
+  box.textContent = doing;
+  line.append(box);
+}
+
 // --- Listening to my own person ----------------------------------------------
 let ctx, stream, node;
 let noise = 0.01, speaking = false, chunks = [], preRoll = [], speechMs = 0, quietMs = 0, lastHeard = 0;
@@ -378,12 +421,12 @@ $("mic").addEventListener("click", () => {
 
 async function start() {
   try {
-    media ||= await openMedia();
+    await openMic();
   } catch {
     showStatus("Please allow the microphone · మైక్ అనుమతి ఇవ్వండి");
     return;
   }
-  stream = media;
+  stream = new MediaStream(media.getAudioTracks());   // the listening hears only the microphone
   ctx = new AudioContext();
   ctx.resume?.();   // started right after Answer (not a tap of its own): make sure it really runs
   demo?.postMessage({ mic: DEMO });   // one microphone for both sides: the other side stops listening
@@ -395,12 +438,11 @@ async function start() {
   stream.getAudioTracks().forEach((t) => (t.onended = () => ctx && stop("Microphone stopped · మైక్ ఆగిపోయింది")));
   lastHeard = Date.now();
   showMic(true);
-  if (hasVideo()) showVideo();
 }
 
 function stop(why) {
   node.disconnect();
-  if (!hasVideo()) closeMedia();   // in a video call the camera and the real voice go on; only the listening stops
+  closeMic();   // the camera, if it's on, goes on: only the listening stops
   ctx.close();
   ctx = null;
   reset();
@@ -478,7 +520,7 @@ function openLive(rate) {
     if ("partial" in m) {   // the words so far, while the person is still talking
       if (!m.partial) return;
       l.line ||= addLine("mine", "");
-      l.line.textContent = m.partial + " …";
+      metaWorking(l.line, m.partial + " …", "👂 Meta · Muse Voice Transcribe · hearing you live…");
     } else {
       give(m.error ? null : m);
       socket.close();
@@ -507,9 +549,10 @@ async function send(sentence, rate, liveLine) {
   const line = liveLine?.line || addLine("mine", "…");
   if (liveLine) liveLine.line = line;   // late words so far go into this same line
   try {
+    if (liveLine) metaWorking(line, line.firstChild?.textContent || "…", "🧠 Meta · Muse Spark Open · translating…");
     let m = liveLine ? await liveLine.finish() : null;   // heard live: ready almost at once
     if (!m) {   // the old way, one trip: the server hears, translates and shares it
-      line.textContent = "…";
+      metaWorking(line, "…", "👂 Meta · Muse Voice Transcribe, then 🧠 Muse Spark Open · at work…");
       const form = new FormData();
       form.append("audio", toWav(sentence, rate), "sentence.wav");
       form.append("person", mine.person);
@@ -522,6 +565,7 @@ async function send(sentence, rate, liveLine) {
     const note = document.createElement("small");
     note.textContent = m.translation;
     line.append(note);
+    metaAtWork(line, m.meta);
   } catch (e) {
     line.textContent = e.message || "Please say it again · మళ్ళీ చెప్పండి";
   }
@@ -651,13 +695,50 @@ const realVoice = { ctx: null, gain: null };
 
 const hasVideo = () => !!media?.getVideoTracks().length;
 
-async function openMedia() {
-  const audio = { echoCancellation: true, noiseSuppression: true, channelCount: 1 };
+// The mic button turns on the microphone, the 📹 button the camera (Vijaya, 30 Oct: joining a call
+// and talking shouldn't turn the camera on; each person taps 📹 when they want to be seen).
+async function openMic() {
+  if (media?.getAudioTracks().some((t) => t.readyState === "live")) return;
+  closeMic();
+  const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+  media ||= new MediaStream();
+  mic.getAudioTracks().forEach((t) => media.addTrack(t));
+}
+
+function closeMic() {
+  media?.getAudioTracks().forEach((t) => { t.stop(); media.removeTrack(t); });
+  if (!media?.getTracks().length) media = null;
+}
+
+$("camera").addEventListener("click", () => (hasVideo() ? cameraOff() : cameraOn()));
+
+async function cameraOn() {
+  unlockSound();
+  let camera;
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio, video: CAMERA(facing) });
+    camera = (await navigator.mediaDevices.getUserMedia({ video: CAMERA(facing) })).getVideoTracks()[0];
   } catch {
-    return navigator.mediaDevices.getUserMedia({ audio });   // no camera, or not allowed: a voice call, as before
+    showMic(!!ctx, "Please allow the camera · కెమెరా అనుమతి ఇవ్వండి");
+    return;
   }
+  if (!call) return camera.stop();
+  media ||= new MediaStream();
+  media.addTrack(camera);
+  showCamera(true);
+  showVideo();
+}
+
+function cameraOff() {
+  media?.getVideoTracks().forEach((t) => { t.stop(); media.removeTrack(t); });
+  if (!media?.getTracks().length) media = null;
+  if (call) sendNote(call, { kind: "bye" });   // their picture of me closes
+  closeVideo();
+  showCamera(false);
+}
+
+function showCamera(on) {
+  $("camera").classList.toggle("on", on);
+  $("camera-word").textContent = on ? "Stop video · ఆపు" : "Video · వీడియో";
 }
 
 function closeMedia() {
@@ -675,14 +756,8 @@ function showVideo() {   // my camera is on: show it small, and tell the other p
   $("my-video").srcObject = media;
   $("my-video").play().catch(() => {});
   $("video").hidden = false;
-  videoNote("Waiting for their camera… · వాళ్ళ కెమెరా కోసం చూస్తున్నాం…");
+  videoNote("Waiting for their video. They tap 📹 · వాళ్ళు 📹 వీడియో నొక్కాలి");
   sendNote(call, { kind: "ready" });
-  clearTimeout(videoTimer);
-  videoTimer = setTimeout(() => {
-    if (peer?.connected) return;
-    videoNote("The video couldn't connect. The voice call goes on · వీడియో రాలేదు, మాటలు కొనసాగుతాయి");
-    videoTimer = setTimeout(() => { if (!peer?.connected) $("video").hidden = true; }, 6000);
-  }, VIDEO_WAIT_MS);
 }
 
 function videoNote(text) {
@@ -699,6 +774,7 @@ function onNote(note, mine) {
     peer.pc.setRemoteDescription({ type: "answer", sdp: note.sdp }).catch(() => {});
   } else if (note.kind === "bye") {
     closeVideo();
+    if (hasVideo()) showVideo();
   }
 }
 
@@ -733,6 +809,11 @@ async function newPeer(mine, id) {
   }
   const pc = new RTCPeerConnection({ iceServers: routes });
   const line = peer = { pc, id, connected: false };
+  if (!$("their-video").srcObject) videoNote("Connecting the video… · వీడియో కలుపుతున్నాం…");
+  clearTimeout(videoTimer);
+  videoTimer = setTimeout(() => {   // the box stays (📹 closes it): the phones keep trying
+    if (peer === line && !line.connected) videoNote("The video couldn't connect. The voice call goes on · వీడియో రాలేదు, మాటలు కొనసాగుతాయి");
+  }, VIDEO_WAIT_MS);
   // Only the picture goes along, not the real voice: a phone's microphone caught it from the
   // speaker and sent it again as new words (30 Oct). The translation in the speaker's own voice is enough.
   media.getVideoTracks().forEach((t) => pc.addTrack(t, media));

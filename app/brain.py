@@ -69,8 +69,9 @@ def family_examples() -> str:
             "follow this style:\n" + "\n".join(lines))
 
 
-def translate(text: str, lang: str, to: str, speaker: str, listener: str, history: list[dict]) -> str:
-    """Translate one sentence from lang into to, said by speaker, for listener."""
+def translate(text: str, lang: str, to: str, speaker: str, listener: str, history: list[dict],
+              work: list | None = None) -> str:
+    """Translate one sentence from lang into to, said by speaker, for listener (`work`: see meta.chat)."""
     system = RULES
     examples = family_examples()
     if examples:
@@ -85,7 +86,7 @@ def translate(text: str, lang: str, to: str, speaker: str, listener: str, histor
                      f"(Speech recognition wrote this down and sometimes uses the wrong letters, for example "
                      f"English letters for spoken Telugu. Read it as spoken {LANGUAGE_NAMES[lang]}.)\n\n"
                      f"Translate into {LANGUAGE_NAMES[to]}, for {listener}."})
-    return clean(meta.chat(messages))
+    return clean(meta.chat(messages, work))
 
 
 def clean(answer: str) -> str:
@@ -100,6 +101,6 @@ Keep the meaning, the questions and the feeling; don't add or drop anything. If 
 return it with only small speech-recognition slips fixed. Reply with the English only: no notes, no quotes."""
 
 
-def to_english(text: str) -> str:
+def to_english(text: str, work: list | None = None) -> str:
     """For the Try page: anything anyone says, in any language, into English."""
-    return clean(meta.chat([{"role": "system", "content": TO_ENGLISH}, {"role": "user", "content": text}]))
+    return clean(meta.chat([{"role": "system", "content": TO_ENGLISH}, {"role": "user", "content": text}], work))

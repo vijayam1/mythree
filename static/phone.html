@@ -103,10 +103,22 @@
     #talk li.mine { align-self: flex-end; background: #fff; color: var(--soft); font-size: 16px; }
     #talk li.theirs { align-self: flex-start; background: var(--leaf); color: #fff; font-size: 21px; }
     #talk small { display: block; font-size: 13px; opacity: .8; margin-top: 4px; }
+    #talk .meta-work { margin-top: 6px; padding-top: 5px; border-top: 1px dashed currentColor; font-size: 12px; line-height: 1.5;
+                       opacity: .85; font-family: ui-monospace, Menlo, monospace; }
+    #talk .meta-work.working { animation: at-work 1.2s ease-in-out infinite alternate; }
+    @keyframes at-work { from { opacity: .45; } to { opacity: .95; } }
     #talk .replay { float: right; margin: 0 0 6px 10px; width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
                     font-size: 22px; background: linear-gradient(#ffffff, var(--leaf-soft));
                     box-shadow: inset 0 1px 0 #fff, 0 4px 0 var(--leaf-dark), 0 6px 8px rgba(0,0,0,.2); }
     #talk .replay:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--leaf-dark); }
+    .controls { flex: none; display: flex; justify-content: center; align-items: center; gap: 22px; }
+    .camera { width: 76px; height: 76px; border-radius: 50%; border: 0; cursor: pointer; display: flex; flex-direction: column;
+              align-items: center; justify-content: center; gap: 2px; background: linear-gradient(#ffffff, #e9eef0); color: var(--ink);
+              box-shadow: inset 0 1px 0 #fff, 0 5px 0 #b9c2c6, 0 7px 10px rgba(0,0,0,.18); }
+    .camera span { font-size: 28px; line-height: 1; }
+    .camera small { font-size: 10px; line-height: 1.1; text-align: center; padding: 0 4px; }
+    .camera:active { transform: translateY(4px); box-shadow: 0 1px 0 #b9c2c6; }
+    .camera.on { background: linear-gradient(#3b4560, #1c2333); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 5px 0 #0d111a, 0 7px 10px rgba(0,0,0,.25); }
     #mic { align-self: center; width: 96px; height: 96px; border-radius: 50%; border: 0; font-size: 40px; color: #fff; cursor: pointer;
            background: radial-gradient(circle at 50% 30%, #4fd59c, var(--leaf) 60%, #168257); transition: transform .06s, box-shadow .06s;
            box-shadow: inset 0 3px 0 rgba(255,255,255,.35), 0 8px 0 var(--leaf-dark), 0 12px 18px rgba(0,0,0,.25); }
@@ -115,10 +127,13 @@
               box-shadow: inset 0 3px 0 rgba(255,255,255,.3), 0 8px 0 var(--stop-dark), 0 12px 18px rgba(0,0,0,.25); }
     #mic-label { text-align: center; margin: -4px 0 0; color: var(--soft); }
 
-    /* Seeing each other: the other person big, me small in the corner, the translation in big letters on the picture. */
-    .video { position: relative; flex: none; height: 46dvh; border-radius: 18px; overflow: hidden; background: #1c2333; }
+    /* Seeing each other: the other person's picture, the translation in big letters on it. The picture takes about
+       a third of the screen and shrinks first on a short phone: the conversation below always keeps room to scroll. */
+    #call:has(#video:not([hidden])) #talk { min-height: 20dvh; }
+    #call:has(#video:not([hidden])) #mic { width: 80px; height: 80px; font-size: 34px; }
+    .video { position: relative; flex: 0 1 38dvh; min-height: 150px; border-radius: 18px; overflow: hidden; background: #1c2333; }
     #their-video { width: 100%; height: 100%; object-fit: cover; display: block; }
-    #my-video { position: absolute; top: 10px; right: 10px; width: 28%; max-width: 130px; aspect-ratio: 3 / 4; object-fit: cover;
+    #my-video { position: absolute; top: 10px; right: 10px; width: 28%; max-width: 130px; max-height: calc(100% - 20px); aspect-ratio: 3 / 4; object-fit: cover;
                 border-radius: 12px; border: 2px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,.3); background: #2c3550; }
     .mirror { transform: scaleX(-1); }
     .video-note { position: absolute; top: 42%; left: 0; right: 0; margin: 0; padding: 0 16px; text-align: center; color: #fff; font-size: 18px; line-height: 1.4; }
@@ -245,14 +260,17 @@
     <div id="status" class="status" aria-live="polite"></div>
     <div id="video" class="video" hidden>
       <video id="their-video" playsinline autoplay muted></video>
-      <!-- my own picture: kept for later, hidden for now (Vijaya, 30 Oct: the other person's picture is enough) -->
-      <video id="my-video" class="mirror" playsinline autoplay muted hidden></video>
+      <!-- my own picture, small in the corner (hidden on 30 Oct, back on 31 Oct: you want to see your camera works) -->
+      <video id="my-video" class="mirror" playsinline autoplay muted></video>
       <p id="video-note" class="video-note"></p>
       <p id="caption" class="caption"></p>
       <button id="flip" class="flip" aria-label="Turn the camera around · కెమెరా తిప్పండి">🔄</button>
     </div>
     <ul id="talk" aria-live="polite"></ul>
-    <button id="mic" aria-label="Start talking">🎙️</button>
+    <div class="controls">
+      <button id="camera" class="camera" aria-label="Video on or off · వీడియో"><span>📹</span><small id="camera-word">Video · వీడియో</small></button>
+      <button id="mic" aria-label="Start talking">🎙️</button>
+    </div>
     <p id="mic-label">Green: tap to talk · గ్రీన్ బటన్ నొక్కి మాట్లాడండి</p>
   </section>
 </main>

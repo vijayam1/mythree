@@ -340,14 +340,21 @@ async def start_call(me: Person):
         raise HTTPException(400, "Unknown language")
     if me.them and (me.them.lang not in LANGUAGES or me.them.lang == me.lang):
         me.them = None   # not a usable invitation: the other person chooses for themselves
+    gone = await voice_gone(me.voice)
     try:
-        room = rooms.start(me.who or "One person", me.lang, me.voice)
+        room = rooms.start(me.who or "One person", me.lang, "" if gone else me.voice)
     except rooms.RoomError as e:
         raise HTTPException(503, str(e))
     if me.them:
         room.invite = me.them.model_dump()
         rooms.save(room)
-    return {"code": room.code, "person": "a", "key": room.key}
+    return {"code": room.code, "person": "a", "key": room.key, "voice_gone": gone}
+
+
+async def voice_gone(voice_id: str) -> bool:
+    """The phone sent a recorded voice that ElevenLabs no longer has: the call uses the standard
+    voice, and the phone is told, so it forgets that voice and can ask its person to record again."""
+    return bool(voice_id) and not await run_in_threadpool(voice.still_there, voice_id)
 
 
 @app.post("/api/calls/{code}/join")
@@ -360,11 +367,12 @@ async def join_call(code: str, me: Person, key: str = CallKey):
         raise HTTPException(400, "Unknown language")
     if me.lang == room.people["a"]["lang"]:
         raise HTTPException(400, "You both chose the same language. Please choose the other one.")
+    gone = await voice_gone(me.voice)
     try:
-        person = rooms.join(room, me.who or "the other person", me.lang, me.voice)
+        person = rooms.join(room, me.who or "the other person", me.lang, "" if gone else me.voice)
     except rooms.RoomError as e:
         raise HTTPException(409, str(e))
-    return {"code": room.code, "person": person, "key": room.key}
+    return {"code": room.code, "person": person, "key": room.key, "voice_gone": gone}
 
 
 @app.get("/api/calls/{code}")
@@ -447,15 +455,17 @@ async def heard_in_call(code: str, audio: UploadFile = File(...), person: str = 
         raise HTTPException(413, "That sentence is too long. Please pause a little more often.")
     if not wav.startswith(b"RIFF"):
         raise HTTPException(400, "Not a WAV sound file")
+    work = []   # which Meta models did the work, shown under the sentence
     try:   # this phone hears only its own person, so the ears are told their language
-        text = await run_in_threadpool(meta.transcribe, wav, [brain.LANGUAGE_NAMES[me["lang"]]])
+        with meta.timed(work, "hear", meta.EARS_NAME, ""):
+            text = await run_in_threadpool(meta.transcribe, wav, [brain.LANGUAGE_NAMES[me["lang"]]])
     except meta.MetaError:
         raise HTTPException(502, "Mythree couldn't hear that just now. Please say it again. "
                                  "మళ్ళీ ఒకసారి చెప్పండి.")
     text = devanagari_to_telugu(text)
     if not text:
         return {"text": ""}
-    return await share(room, person, text)
+    return await share(room, person, text, work)
 
 
 LIVE_SECONDS = 45   # one sentence on the live line: at most 25 s of speech, plus room to spare
@@ -475,10 +485,11 @@ async def live_in_call(socket: WebSocket, code: str):
         room = await room_or_404(code, str(hello.get("key", "")))
         person = str(hello.get("person", ""))
         me, _ = the_two(room, person)
+        work = []
         async with meta.LiveEars([brain.LANGUAGE_NAMES[me["lang"]]]) as ears:
-            text = await asyncio.wait_for(hear_live(socket, ears), LIVE_SECONDS)
+            text = await asyncio.wait_for(hear_live(socket, ears, work), LIVE_SECONDS)
         text = devanagari_to_telugu(text)
-        reply = await share(room, person, text) if text else {"text": ""}
+        reply = await share(room, person, text, work) if text else {"text": ""}
     except WebSocketDisconnect:
         return   # the phone went away (the sentence was a cough, or the call ended)
     except HTTPException as e:
@@ -492,8 +503,11 @@ async def live_in_call(socket: WebSocket, code: str):
         pass   # the phone has already gone
 
 
-async def hear_live(socket: WebSocket, ears: meta.LiveEars) -> str:
-    """Pass the phone's sound on to Meta while Meta's words come back; returns the final words."""
+async def hear_live(socket: WebSocket, ears: meta.LiveEars, work: list) -> str:
+    """Pass the phone's sound on to Meta while Meta's words come back; returns the final words.
+    How long Meta took after the pause is added to `work`."""
+    paused = {}
+
     async def pass_on():
         size = 0
         while True:
@@ -506,12 +520,15 @@ async def hear_live(socket: WebSocket, ears: meta.LiveEars) -> str:
                     raise HTTPException(413, "That sentence is too long. Please pause a little more often.")
                 await ears.hear(message["bytes"])
             elif message.get("text"):   # {"end": true}: the speaker paused
+                paused["at"] = time.monotonic()
                 await ears.end()
                 return
 
     async def listen():
         async for words, final in ears.words():
             if final:
+                waited = time.monotonic() - paused.get("at", time.monotonic())
+                work.append({"job": "hear", "model": meta.EARS_NAME, "where": "live", "s": round(waited, 1)})
                 return words
             await socket.send_json({"partial": devanagari_to_telugu(words)})
 
@@ -535,8 +552,9 @@ def the_two(room: rooms.Room, person: str) -> tuple[dict, dict]:
     return me, them
 
 
-async def share(room: rooms.Room, person: str, said: str) -> dict:
-    """Translate one person's sentence for the other, share it, and start making its voice right away."""
+async def share(room: rooms.Room, person: str, said: str, work: list | None = None) -> dict:
+    """Translate one person's sentence for the other, share it, and start making its voice right away.
+    `work`: the Meta models that have already worked on it (the ears); the brain is added."""
     me, them = the_two(room, person)
     # Each phone hears only its own person, so trust their chosen language, not the letters:
     # the ears sometimes write Telugu in English or Gujarati letters.
@@ -547,13 +565,14 @@ async def share(room: rooms.Room, person: str, said: str) -> dict:
         return {"text": "", "translation": "", "echo": True}
     history =[{"who": room.people[m["person"]]["who"], "text": m["text"], "lang": m["lang"]}
                for m in room.messages]
+    work = list(work or [])
     try:
-        text = await run_in_threadpool(brain.translate, said, lang, to, me["who"], them["who"], history)
+        text = await run_in_threadpool(brain.translate, said, lang, to, me["who"], them["who"], history, work)
     except meta.MetaError:
         raise HTTPException(502, "Mythree couldn't translate that just now. Please say it again. "
                                  "మళ్ళీ ఒకసారి చెప్పండి.")
     m = rooms.add(room, {"person": person, "text": said, "lang": lang,
-                         "translation": text, "to": to, "at": time.time()})
+                         "translation": text, "to": to, "at": time.time(), "meta": work})
     if room.voices.get(person):   # start making the voice now, before the other phone asks for it
         sound = room.sounds[m["n"]] = rooms.Sound()
         room.tasks.add(task := asyncio.create_task(make_voice(sound, text, to, room.voices[person])))
@@ -810,15 +829,17 @@ async def try_heard(audio: UploadFile = File(...), language: str = Form("")):
         raise HTTPException(413, "That's a bit long. Please say one or two sentences at a time.")
     if not wav.startswith(b"RIFF"):
         raise HTTPException(400, "Not a WAV sound file")
+    work = []   # which Meta models did the work, shown under the sentence
     try:
-        said = await run_in_threadpool(meta.transcribe, wav, [language] if language else None)
+        with meta.timed(work, "hear", meta.EARS_NAME, ""):
+            said = await run_in_threadpool(meta.transcribe, wav, [language] if language else None)
         if language == "Telugu":
             said = devanagari_to_telugu(said)   # any Kannada or Hindi letters that slipped through → Telugu
-        english = await run_in_threadpool(brain.to_english, said) if said else ""
+        english = await run_in_threadpool(brain.to_english, said, work) if said else ""
     except meta.MetaError:
         raise HTTPException(502, "Mythree couldn't hear that just now. Please try again.")
     await count_visit("sentences", language)
-    return {"text": said, "english": english}
+    return {"text": said, "english": english, "meta": work}
 
 
 class TrySpeak(BaseModel):

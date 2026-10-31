@@ -9,7 +9,7 @@ client = TestClient(app)
 def test_translate_telugu_for_the_grandson(monkeypatch):
     seen = {}
 
-    def fake_chat(messages):
+    def fake_chat(messages, work=None):
         seen["messages"] = messages
         return '"Dear, have you eaten?"'
     monkeypatch.setattr(meta, "chat", fake_chat)
@@ -20,14 +20,14 @@ def test_translate_telugu_for_the_grandson(monkeypatch):
 
 
 def test_translate_english_for_the_grandfather(monkeypatch):
-    monkeypatch.setattr(meta, "chat", lambda m: "Translation: నమస్తే తాతగారు")
+    monkeypatch.setattr(meta, "chat", lambda m, work=None: "Translation: నమస్తే తాతగారు")
     reply = client.post("/api/translate", json={"text": "Hi Grandpa", "lang": "en", "to": "te"})
     assert reply.json() == {"text": "నమస్తే తాతగారు", "lang": "te"}
 
 
 def test_earlier_sentences_are_given_as_context(monkeypatch):
     seen = {}
-    monkeypatch.setattr(meta, "chat", lambda m: seen.setdefault("m", m) and "ok")
+    monkeypatch.setattr(meta, "chat", lambda m, work=None: seen.setdefault("m", m) and "ok")
     client.post("/api/translate", json={
         "text": "Yes, I ate", "lang": "en", "to": "te", "who": "Ravi",
         "history": [{"text": "భోజనం చేశావా?", "lang": "te", "who": "Grandpa"}],
@@ -41,7 +41,7 @@ def test_rules_keep_respect_for_elders():
 
 def test_names_are_optional(monkeypatch):
     seen = {}
-    monkeypatch.setattr(meta, "chat", lambda m: seen.setdefault("m", m) and "ok")
+    monkeypatch.setattr(meta, "chat", lambda m, work=None: seen.setdefault("m", m) and "ok")
     client.post("/api/translate", json={"text": "hi", "lang": "en", "to": "te"})
     assert "One person (English) says: hi" in seen["m"][-1]["content"]
 
@@ -68,7 +68,7 @@ def test_empty_or_unknown_input_is_refused():
 
 
 def test_meta_trouble_gives_a_friendly_message(monkeypatch):
-    def broken(messages):
+    def broken(messages, work=None):
         raise meta.MetaError("down")
     monkeypatch.setattr(meta, "chat", broken)
     reply = client.post("/api/translate", json={"text": "hi", "lang": "en", "to": "te"})
@@ -90,6 +90,20 @@ def test_open_brain_is_tried_first_then_meta_api(monkeypatch):
     assert calls == [meta.OPEN_BRAIN_MODEL, meta.BRAIN_MODEL]
 
 
+def test_the_brain_says_which_meta_model_answered(monkeypatch):
+    down = []
+    monkeypatch.setattr(meta, "_ask", lambda base, auth, model, *a: (_ for _ in ()).throw(meta.MetaError("x"))
+                        if model in down else "ok")
+    monkeypatch.setattr(meta, "secret", lambda name: "test-key")
+    work = []
+    meta.chat([{"role": "user", "content": "hi"}], work)
+    assert [(w["model"], w["where"]) for w in work] == [("Muse Spark Open", "on Baseten")]
+    down.append(meta.OPEN_BRAIN_MODEL)   # Baseten down: only the backup that really answered is named
+    work = []
+    meta.chat([{"role": "user", "content": "hi"}], work)
+    assert [(w["model"], w["where"]) for w in work] == [("Muse Spark 1.3", "Meta API")]
+
+
 def test_pet_names_stay_pet_names():
     assert "Pet names stay pet names" in brain.RULES
     assert 'never "dear", "my boy"' in brain.RULES
@@ -97,7 +111,7 @@ def test_pet_names_stay_pet_names():
 
 def test_telugu_on_an_english_card_is_still_translated_into_english(monkeypatch):
     seen = {}
-    monkeypatch.setattr(meta, "chat", lambda m: seen.setdefault("m", m) and "Did you eat?")
+    monkeypatch.setattr(meta, "chat", lambda m, work=None: seen.setdefault("m", m) and "Did you eat?")
     reply = client.post("/api/translate", json={"text": "భోజనం చేశావా?", "lang": "en", "to": "te"})
     assert reply.json()["lang"] == "en"
     assert "Translate into English" in seen["m"][-1]["content"]

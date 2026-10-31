@@ -17,3 +17,9 @@ def fresh_request_counts():
 def plenty_of_characters(monkeypatch):
     """Tests never ask ElevenLabs how many characters are left: there are always plenty."""
     monkeypatch.setattr("app.voice.characters_left", lambda: 30_000)
+
+
+@pytest.fixture(autouse=True)
+def recorded_voices_are_still_there(monkeypatch):
+    """Tests never ask ElevenLabs whether a recorded voice still exists: it does."""
+    monkeypatch.setattr("app.voice.still_there", lambda voice_id: bool(voice_id))
