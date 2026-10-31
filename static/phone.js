@@ -35,6 +35,7 @@ async function problemOf(reply) {
 // Each side is this same phone app, so later the two phones simply go to two places.
 const DEMO = new URLSearchParams(location.search).get("demo");   // "a" (left), "b" (right), or null on a real phone
 const ME_KEY = DEMO === "b" ? "mythree-me-b" : "mythree-me";     // the right phone remembers its own person
+const CALL_KEY = `${ME_KEY}-call`;                                 // and the call it is in
 const demo = DEMO ? new BroadcastChannel("mythree-demo") : null;  // how the two sides tell each other things
 const demoTail = DEMO ? `&demo=${DEMO}` : "";
 
@@ -54,7 +55,12 @@ $("their-lang").value = otherLang($("lang").value);
 $("lang").addEventListener("change", () => { $("their-lang").value = otherLang($("lang").value); });
 $("their-lang").addEventListener("change", () => { $("lang").value = otherLang($("their-lang").value); });
 const link = new URLSearchParams(location.search);
-if (link.get("code")) invited(link.get("code"), link.get("key") || "");
+// Back to my call: sending the invitation leaves this page (WhatsApp opens), and the phone may
+// reload it or open it fresh. The phone remembers the call it is in, so the page comes back to it.
+const back = rememberedCall();
+if (back && (!link.get("code") || link.get("code") === back.code)) {
+  resume(back).then((ok) => ok || !link.get("code") || invited(link.get("code"), link.get("key") || ""));
+} else if (link.get("code")) invited(link.get("code"), link.get("key") || "");
 
 async function invited(code, key) {   // opened from a link
   callKey = key;
@@ -146,9 +152,48 @@ $("join-call").addEventListener("click", async () => {
   enter(code, person, mine.lang);
 });
 
-function enter(code, person, lang) {
+function rememberedCall() {
+  try {
+    const back = JSON.parse(localStorage.getItem(CALL_KEY));
+    return back && Date.now() - back.at < 3 * 3600 * 1000 ? back : null;   // a call is forgotten after 3 hours
+  } catch { return null; }
+}
+
+function forgetCall() {
+  try { localStorage.removeItem(CALL_KEY); } catch { /* private window */ }
+}
+
+async function resume(back) {   // the page came back while its call goes on: carry on where it was
+  callKey = back.key;
+  const reply = await api(`/api/calls/${back.code}?after=0&known=0&person=${back.person}&notes=0`).catch(() => null);
+  if (!reply?.ok) { forgetCall(); return false; }
+  if (back.simple) {
+    simple = ANSWER[back.simple] || ANSWER.en;
+    document.body.classList.add("simple");
+  }
+  enter(back.code, back.person, back.lang, await reply.json());
+  showMic(false);
+  return true;
+}
+
+function enter(code, person, lang, news) {
   call = { code, person, lang, people: {}, after: 0, notes: 0 };
+  try {
+    localStorage.setItem(CALL_KEY, JSON.stringify({ code, key: callKey, person, lang, simple: simple ? lang : "",
+                                                    at: Date.now() }));
+  } catch { /* private window */ }
   shown.clear();
+  $("talk").replaceChildren();
+  if (news) {   // came back to the call: show what was said, without saying it all again
+    call.people = news.people;
+    call.notes = news.notes?.at(-1)?.n || 0;   // old video notes are for the page that was here before
+    for (const m of news.messages) {
+      call.after = m.n;
+      shown.add(m.n);
+      const mine = m.person === person;
+      addLine(mine ? "mine" : "theirs", mine ? m.text : m.translation, mine ? m.translation : m.text);
+    }
+  }
   $("problem").textContent = "";
   $("setup").hidden = true;
   $("call").hidden = false;
@@ -161,6 +206,7 @@ function enter(code, person, lang) {
 
 $("end").addEventListener("click", () => {
   if (call) sendNote(call, { kind: "bye" });
+  forgetCall();
   if (ctx) stop();
   closeVideo();
   closeMedia();
@@ -198,6 +244,7 @@ function showStatus(note) {
       <li>Tap WhatsApp, Email or Text below · కింద WhatsApp, Email లేదా Text బటన్ నొక్కండి</li>
       <li>There, tap <b>Send</b> · అక్కడ <b>Send</b> నొక్కండి</li>
       <li>Come back here and wait. This box turns to "Talking with…" when they join · వాళ్ళు జాయిన్ అయ్యే వరకు ఇక్కడే ఉండండి</li>
+      <li>Can't find this page? Tap the Mythree link again (the one you just sent works too). Your call comes back · ఈ పేజీ కనిపించకపోతే, మైత్రి లింక్ మళ్ళీ నొక్కండి (మీరు పంపిన లింక్ కూడా పనిచేస్తుంది). మీ కాల్ తిరిగి వస్తుంది</li>
       <li>Then tap the green mic button 🎙️. When it turns red, talk · తర్వాత గ్రీన్ మైక్ బటన్ 🎙️ నొక్కండి. అది ఎరుపు అయ్యాక మాట్లాడండి</li>
     </ol>`;
   steps.querySelector("strong").textContent = call.code;
@@ -247,7 +294,9 @@ function sendButton(kind, label, href) {
   a.className = `send ${kind}`;
   a.textContent = label;
   a.href = href;
-  if (kind === "whatsapp") a.target = "_blank";
+  // On a computer WhatsApp opens in a new tab, next to this one. On a phone the WhatsApp app opens
+  // instead; a new tab there would hide this page behind an empty one when the caller comes back.
+  if (kind === "whatsapp" && !matchMedia("(pointer: coarse)").matches) a.target = "_blank";
   return a;
 }
 
@@ -274,7 +323,7 @@ async function follow(mine) {
       const known = Object.keys(mine.people).length;
       const reply = await api(`/api/calls/${mine.code}?after=${mine.after}&known=${known}` +
                               `&person=${mine.person}&notes=${mine.notes}`);
-      if (reply.status === 404) { showStatus("This call has ended · కాల్ ముగిసింది"); return; }
+      if (reply.status === 404) { forgetCall(); showStatus("This call has ended · కాల్ ముగిసింది"); return; }
       if (!reply.ok) throw new Error(String(reply.status));
       news = await reply.json();
     } catch {
