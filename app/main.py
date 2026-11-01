@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from app import brain, meta, rooms, voice
+from app import brain, languages, meta, rooms, voice
 from app.settings import secret, voice_id as family_voice
 from app.telugu import devanagari_to_telugu, language_of
 
@@ -117,9 +117,9 @@ def demo():
     return page("demo.html")
 
 
-# The free Try page is open for the hackathon week only: it closes by itself at the submission deadline,
-# Wednesday 4 November 2026, 8 PM in Dallas (Central Standard Time, 2 AM on 5 November in UTC).
-TRY_OPEN_UNTIL = 1793844000   # 2026-11-05 02:00 UTC
+# The free Try page is open for the hackathon and its judging: it closes by itself when judging ends,
+# Monday 9 November 2026, midnight in New York (Eastern Standard Time, 5 AM on 10 November in UTC).
+TRY_OPEN_UNTIL = 1794286800   # 2026-11-10 05:00 UTC
 TRY_CLOSED = "Try Mythree was open during the hackathon week, and it is closed now. Thank you for trying it! 🦚"
 
 
@@ -129,7 +129,8 @@ def try_closed() -> bool:
 
 # --- Who is trying Mythree: numbers only, never words, voices or names ------------
 # Per Dallas day: {"voices": visitors who lent their voice, "sentences": sentences spoken,
-# "languages": {language chosen: sentences}}. Online they are kept in a small Modal store,
+# "languages": {language spoken: sentences}, "heard_in": {language chosen to hear: sentences},
+# "characters": ElevenLabs characters the visitors' voices used}. Online they are kept in a small Modal store,
 # so they survive restarts; locally and in tests, in memory.
 stats_store = None          # online: a modal.Dict (set by modal_app.py)
 stats_days: dict[str, dict] = {}
@@ -139,15 +140,21 @@ def dallas_day() -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(time.time() - 6 * 3600))   # Dallas, near enough for counting
 
 
-async def count_visit(what: str, language: str = ""):
+async def counts_of(day: str) -> dict:
+    return (await stats_store.get.aio(day) if stats_store is not None else stats_days.get(day)) or {}
+
+
+async def count_visit(what: str, language: str = "", to: str = "", amount: int = 1):
     day = dallas_day()
     try:
-        counts = (await stats_store.get.aio(day) if stats_store is not None else stats_days.get(day)) or {}
-        counts[what] = counts.get(what, 0) + 1
+        counts = await counts_of(day)
+        counts[what] = counts.get(what, 0) + amount
         if what == "sentences":
             languages = counts.setdefault("languages", {})
             name = language or "Found by itself"
             languages[name] = languages.get(name, 0) + 1
+            heard_in = counts.setdefault("heard_in", {})
+            heard_in[to] = heard_in.get(to, 0) + 1
         if stats_store is not None:
             await stats_store.put.aio(day, counts)
         else:
@@ -163,19 +170,21 @@ async def stats():
         days = {day: await stats_store.get.aio(day) async for day in stats_store.keys.aio()}
     else:
         days = dict(stats_days)
-    week = {"voices": 0, "sentences": 0, "languages": {}}
+    week = {"voices": 0, "sentences": 0, "languages": {}, "heard_in": {}}
     for counts in days.values():
         week["voices"] += counts.get("voices", 0)
         week["sentences"] += counts.get("sentences", 0)
-        for name, n in counts.get("languages", {}).items():
-            week["languages"][name] = week["languages"].get(name, 0) + n
+        for kind in ("languages", "heard_in"):
+            for name, n in counts.get(kind, {}).items():
+                week[kind][name] = week[kind].get(name, 0) + n
     try:
         in_use = len(await run_in_threadpool(voice.try_voices))
         left = await run_in_threadpool(voice.characters_left)
     except voice.VoiceError:
         in_use, left = None, None
     return {"today": days.get(dallas_day(), {}), "week": week, "voices_in_use": in_use, "voice_places": TRY_MAX_VOICES,
-            "characters_left": left, "family_reserve": FAMILY_CHARACTERS, "open_until": TRY_OPEN_UNTIL}
+            "characters_left": left, "family_reserve": FAMILY_CHARACTERS, "open_until": TRY_OPEN_UNTIL,
+            "characters_per_day": TRY_CHARACTERS_PER_DAY}
 
 
 @app.get("/stats")
@@ -751,7 +760,7 @@ SHARE_AFTER_MINUTES = 10   # when all voice places are taken, a visitor voice th
 TRY_MAX_VOICES = 7           # visitors hold at most 7 of ElevenLabs' 10 voice places; 3 stay for the family
 FAMILY_CHARACTERS = 20_000   # below this many characters left this month, visitors hear a standard voice
 VOICES_FULL = ("So many people are trying Mythree right now that all of its own-voice places are in use. 🙏 "
-                                     "Everything else works: speak, and you'll read and hear it in English in a standard voice. "
+                                     "Everything else works: speak, and you'll read and hear it in a standard voice. "
                                      "Come back in about 10 minutes and tap \"Try my own voice again\".")
 STANDARD_VOICE = ("Today Mythree's own voices are saved for the family that built it, so you'll hear a standard "
                   "voice. Everything else works the same!")
@@ -762,6 +771,22 @@ async def family_characters_safe() -> bool:
         return await run_in_threadpool(voice.characters_left) > FAMILY_CHARACTERS
     except voice.VoiceError:
         return False
+
+
+# The visitors' voices may use only so many characters a day, so a busy evening (a post going viral) can't
+# spend the whole month at once: judges trying Mythree on the last day still hear the real voices.
+TRY_CHARACTERS_PER_DAY = 1_200   # about 20 sentences; after that, the phone's own voice until tomorrow
+VOICES_REST_TODAY = ("Mythree's voices have spoken a lot today, so for the rest of the day you'll hear your phone's "
+                     "own voice. Everything else works the same! Come back tomorrow for the real voice.")
+
+
+async def visitors_may_speak(characters: int):
+    """Refuse (503) when the family's reserve or today's visitor share would be used up."""
+    if not await family_characters_safe():
+        raise HTTPException(503, STANDARD_VOICE)
+    used = (await counts_of(dallas_day())).get("characters", 0)
+    if used + characters > TRY_CHARACTERS_PER_DAY:
+        raise HTTPException(503, VOICES_REST_TODAY)
 
 
 async def tidy_try_voices(make_room: bool = False):
@@ -814,10 +839,12 @@ async def visitor_voice(voice_id: str) -> str:
 @app.post("/api/try/hello/{voice_id}")
 async def try_hello(voice_id: str):
     """The first wow: "Hello! This is my voice in Mythree." in the visitor's own voice."""
+    await visitors_may_speak(len(HELLO["en"]))
     try:
         sound = await run_in_threadpool(voice.speak_as, HELLO["en"], "en", await visitor_voice(voice_id))
     except voice.VoiceError:
         raise HTTPException(503, "Your voice isn't ready just now.")
+    await count_visit("characters", amount=len(HELLO["en"]))
     return StreamingResponse(sound, media_type="audio/mpeg")
 
 
@@ -834,8 +861,7 @@ async def try_forget(voice_id: str):
 @app.post("/api/try/voice")
 async def try_learn_voice(audio: UploadFile = File(...), consent: bool = Form(False)):
     """A visitor's voice, for one hour at most."""
-    if not await family_characters_safe():
-        raise HTTPException(503, STANDARD_VOICE)
+    await visitors_may_speak(1)   # no point copying a voice that can't speak today
     await tidy_try_voices()
     try:
         visitors = await run_in_threadpool(voice.try_voices)
@@ -864,19 +890,22 @@ async def try_learn_voice(audio: UploadFile = File(...), consent: bool = Form(Fa
     raise HTTPException(503, VOICES_FULL)
 
 
-# The languages a visitor may pick (all accepted by Meta's ears, tested 29 Oct). Without a pick the
-# ears guess, and sometimes write Telugu in Kannada letters, because the two sound alike.
-TRY_LANGUAGES = {"Telugu", "Hindi", "Kannada", "Tamil", "Malayalam", "Bengali", "Marathi", "Gujarati", "Punjabi",
-                 "Urdu", "English", "Spanish", "French", "German", "Portuguese", "Italian", "Arabic", "Chinese",
-                 "Japanese", "Korean", "Russian", "Indonesian", "Vietnamese", "Turkish", "Thai"}
+# The languages a visitor may speak and hear (app/languages.py): India's 22, and the world's. Telling the ears
+# the language helps: without it they guess, and sometimes write Telugu in Kannada letters, because the two sound alike.
+TRY_LANGUAGES = languages.VOICE_CODE
+
+
+@app.get("/api/try/languages")
+def try_languages():
+    return languages.for_the_page()
 
 
 @app.post("/api/try/heard")
-async def try_heard(audio: UploadFile = File(...), language: str = Form("")):
-    """One sentence in any language: what was said, and the same in English.
+async def try_heard(audio: UploadFile = File(...), language: str = Form(""), to: str = Form("English")):
+    """One sentence in any language: what was said, and the same in the language the visitor chose to hear.
     `language` (optional) is the visitor's own language, told to the ears."""
     count_a_try()
-    if language and language not in TRY_LANGUAGES:
+    if (language and language not in TRY_LANGUAGES) or to not in TRY_LANGUAGES:
         raise HTTPException(400, "Unknown language")
     wav = await audio.read(MAX_SENTENCE_BYTES + 1)
     if len(wav) > MAX_SENTENCE_BYTES:
@@ -889,27 +918,34 @@ async def try_heard(audio: UploadFile = File(...), language: str = Form("")):
             said = await run_in_threadpool(meta.transcribe, wav, [language] if language else None)
         if language == "Telugu":
             said = devanagari_to_telugu(said)   # any Kannada or Hindi letters that slipped through → Telugu
-        english = await run_in_threadpool(brain.to_english, said, work) if said else ""
+        translation = await run_in_threadpool(brain.to_language, said, to, work) if said else ""
     except meta.MetaError:
         raise HTTPException(502, "Mythree couldn't hear that just now. Please try again.")
-    await count_visit("sentences", language)
-    return {"text": said, "english": english, "meta": work}
+    await count_visit("sentences", language, to)
+    return {"text": said, "translation": translation, "to": to, "meta": work}
 
 
 class TrySpeak(BaseModel):
     text: str = Field(max_length=600)
-    voice: str = VoiceId
+    voice: str = VoiceId          # empty: the visitor hasn't lent a voice, so a ready-made voice speaks
+    language: str = Field(default="English", max_length=40)
 
 
 @app.post("/api/try/speak")
 async def try_speak(line: TrySpeak):
-    """The English, in the visitor's own voice."""
-    if not await family_characters_safe():
-        raise HTTPException(503, STANDARD_VOICE)
+    """The translation, in the visitor's own voice (or a ready-made one), in the language they chose."""
+    code = TRY_LANGUAGES.get(line.language, "unknown")
+    if code == "unknown":
+        raise HTTPException(400, "Unknown language")
+    if code is None:
+        raise HTTPException(404, f"Mythree has no voice for {line.language} yet. Read it above!")
+    await visitors_may_speak(len(line.text))
+    speaker = own_voice_id(line.voice) if line.voice else voice.STANDARD_VOICES["anyone"]
     try:
-        sound = await run_in_threadpool(voice.speak_as, line.text, "en", own_voice_id(line.voice))
+        sound = await run_in_threadpool(voice.speak_as, line.text, code, speaker)
     except voice.VoiceError:
         raise HTTPException(503, "Your voice isn't ready, so you'll hear a standard voice.")
+    await count_visit("characters", amount=len(line.text))
     return StreamingResponse(sound, media_type="audio/mpeg")
 
 

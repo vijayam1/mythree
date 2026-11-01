@@ -20,6 +20,8 @@ async function show() {
   const s = await reply.json();
   $("today-voices").textContent = number(s.today.voices || 0);
   $("today-sentences").textContent = number(s.today.sentences || 0);
+  $("today-characters").textContent = number(s.today.characters || 0);
+  $("today-characters-what").textContent = `voice characters used, of ${number(s.characters_per_day)} a day`;
   $("week-voices").textContent = number(s.week.voices);
   $("week-sentences").textContent = number(s.week.sentences);
   $("in-use").textContent = s.voices_in_use == null ? "–" : `${s.voices_in_use} of ${s.voice_places}`;
@@ -28,8 +30,20 @@ async function show() {
     : s.characters_left > s.family_reserve
       ? `Visitors may use about ${number(s.characters_left - s.family_reserve)} more; ${number(s.family_reserve)} are kept for the family.`
       : "The family's reserve is reached: visitors now hear a standard voice.";
-  const languages = Object.entries(s.week.languages).sort((a, b) => b[1] - a[1]);
-  $("languages").replaceChildren(...(languages.length ? languages : [["No one yet", ""]]).map(([name, n]) => {
+  showCounts("languages", s.week.languages);
+  showCounts("heard-in", s.week.heard_in || {});
+  const closes = new Date(s.open_until * 1000);
+  $("when").textContent = `Updated ${new Date().toLocaleTimeString()}. The Try page closes ${closes.toLocaleString()}.`;
+}
+
+$("refresh").addEventListener("click", show);
+show();
+setInterval(show, 60_000);
+
+// One list of languages, most used first: the languages people spoke, or the ones they chose to hear.
+function showCounts(id, counts) {
+  const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  $(id).replaceChildren(...(rows.length ? rows : [["No one yet", ""]]).map(([name, n]) => {
     const li = document.createElement("li");
     const left = document.createElement("span");
     const right = document.createElement("b");
@@ -38,10 +52,4 @@ async function show() {
     li.append(left, right);
     return li;
   }));
-  const closes = new Date(s.open_until * 1000);
-  $("when").textContent = `Updated ${new Date().toLocaleTimeString()}. The Try page closes ${closes.toLocaleString()}.`;
 }
-
-$("refresh").addEventListener("click", show);
-show();
-setInterval(show, 60_000);

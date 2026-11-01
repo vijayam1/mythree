@@ -95,12 +95,14 @@ def clean(answer: str) -> str:
     return answer.strip().strip('"“”').strip()
 
 
-TO_ENGLISH = """You are Mythree, a live interpreter. Someone just spoke, in any language.
-Translate what they said into plain, natural, warm spoken English, the way they would say it themselves.
-Keep the meaning, the questions and the feeling; don't add or drop anything. If it is already English,
-return it with only small speech-recognition slips fixed. Reply with the English only: no notes, no quotes."""
+TO_LANGUAGE = """You are Mythree, a live interpreter. Someone just spoke, in any language.
+Translate what they said into plain, natural, warm spoken {language}, the way they would say it themselves,
+written in {language}'s own script. Keep the meaning, the questions and the feeling; don't add or drop anything.
+If it is already {language}, return it with only small speech-recognition slips fixed.
+Reply with the {language} only: no notes, no quotes."""
 
 
-def to_english(text: str, work: list | None = None) -> str:
-    """For the Try page: anything anyone says, in any language, into English."""
-    return clean(meta.chat([{"role": "system", "content": TO_ENGLISH}, {"role": "user", "content": text}], work))
+def to_language(text: str, language: str = "English", work: list | None = None) -> str:
+    """For the Try page: anything anyone says, in any language, into the language they chose to hear."""
+    system = TO_LANGUAGE.format(language=language)
+    return clean(meta.chat([{"role": "system", "content": system}, {"role": "user", "content": text}], work))

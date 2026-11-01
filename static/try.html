@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+Tammudu+2:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    /* Try Mythree: speak your own language, hear yourself speak English. For hackathon visitors. */
+    /* Try Mythree: speak your own language, hear yourself speak any other. For hackathon visitors. */
     :root { --ink: #26304a; --soft: #5f6679; --bg: #e4f2dc; --card: #ffffff; --leaf: #1f9d6b; --leaf-dark: #0f6b47;
             --leaf-soft: #e3f6ec; --stop: #d8483b; --stop-dark: #9b2a20; }
     * { box-sizing: border-box; }
@@ -21,7 +21,7 @@
     .lead { margin: 0; font-size: 19px; line-height: 1.45; }
     .card { background: var(--card); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
     h2 { font-size: 21px; margin: 0; line-height: 1.3; }
-    .consent span, #lines .english, #lines .said { line-height: 1.4; }
+    .consent span, #lines .translation, #lines .said { line-height: 1.4; }
     p { margin: 0; line-height: 1.45; }
     .soft { color: var(--soft); font-size: 15px; }
     [hidden] { display: none !important; }
@@ -48,12 +48,14 @@
               box-shadow: inset 0 3px 0 rgba(255,255,255,.3), 0 9px 0 var(--stop-dark), 0 13px 20px rgba(0,0,0,.25); }
     #mic-label { text-align: center; font-size: 18px; }
     .lang { display: flex; flex-direction: column; gap: 6px; font-size: 16px; font-weight: 600; }
-    .lang select { font: inherit; font-size: 19px; padding: 10px 12px; border-radius: 10px; border: 2px solid #7f9a86;
+    .pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: end; }
+    .pair .plain { padding: 10px 12px; font-size: 20px; margin-bottom: 4px; }
+    .lang select { width: 100%; font: inherit; font-size: 19px; padding: 10px 12px; border-radius: 10px; border: 2px solid #7f9a86;
                    background: #fbfdf9; box-shadow: inset 0 3px 5px rgba(0,0,0,.12); color: var(--ink); }
     #lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
     #lines li { background: var(--leaf-soft); border-radius: 14px; padding: 10px 12px; }
     #lines .said { color: var(--soft); font-size: 16px; }
-    #lines .english { font-size: 21px; font-weight: 600; margin-top: 2px; }
+    #lines .translation { font-size: 21px; font-weight: 600; margin-top: 2px; }
     #lines .replay { float: right; margin: 0 0 4px 10px; width: 44px; height: 44px; border-radius: 50%; border: 0; font-size: 20px;
                      background: linear-gradient(#ffffff, var(--leaf-soft)); box-shadow: inset 0 1px 0 #fff, 0 4px 0 var(--leaf-dark); }
     .problem { color: var(--stop-dark); min-height: 1.2em; }
@@ -65,6 +67,7 @@
     .help summary { cursor: pointer; color: var(--leaf-dark); font-weight: 600; }
     .help p { margin: 6px 0 0; font-size: 15px; }
     .note { font-size: 15px; background: var(--leaf-soft); border-radius: 12px; padding: 8px 12px; line-height: 1.45; }
+    .offer { background: #fff7e0; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
     .ready { font-size: 18px; font-weight: 600; color: var(--leaf-dark); }
     #passage { margin: 0; padding: 12px 14px; background: #fff7e0; border-radius: 12px; font-size: 19px; line-height: 1.6; }
     #lines .status { color: var(--leaf-dark); font-size: 15px; margin-top: 4px; }
@@ -76,51 +79,52 @@
 <body>
 <main>
   <h1><img src="/static/mythree-logo.svg" alt="">Try Mythree</h1>
-  <p class="lead">Speak in <b>your own language</b>, and in a few seconds hear <b>yourself</b> speak English, beautifully, in <b>your own voice</b>.</p>
-  <p class="soft">It takes about 2 minutes. Use a phone or computer with a microphone, in Chrome or Safari, somewhere quiet.</p>
+  <p class="lead">Speak in <b>your own language</b>, and in a few seconds hear yourself speak <b>another one</b>: English, Hindi, Spanish, Japanese… <b>102 languages</b>, all 22 of India's, and 94 of them even in <b>your own voice</b>.</p>
+  <p class="soft">Use a phone or computer with a microphone, in Chrome or Safari, somewhere quiet.</p>
 
-  <!-- Step 1: lend Mythree your voice for an hour (or skip and hear a standard voice) -->
-  <section id="step-voice" class="card">
-    <h2><span class="num">1</span> Lend Mythree your voice</h2>
-    <p>Mythree listens to you for <b>20 seconds</b> and learns how you sound. Then it can speak English <b>as you</b>.</p>
+  <!-- Step 1: talk, and hear it in the language you chose -->
+  <section id="step-talk" class="card">
+    <h2><span class="num">1</span> Speak, and hear it in any language</h2>
+    <div class="pair">
+      <label class="lang">I speak <select id="language"></select></label>
+      <button id="swap" class="plain" aria-label="Swap the two languages">⇄</button>
+      <label class="lang">Hear it in <select id="to"></select></label>
+    </div>
+    <ol class="steps-list">
+      <li>Tap the <b>green button</b> once. It turns <b>red</b>: Mythree is listening.</li>
+      <li>Say <b>one or two sentences</b> in your language.</li>
+      <li>Tap the <b>red button</b> when you're done.</li>
+      <li>In a few seconds you'll <b>read</b> it in the language you chose and <b>hear</b> it. Tap 🔁 to hear it again.</li>
+    </ol>
+    <p class="soft">Ideas: tell your mother you miss her. Say a proverb from your language. Describe your favourite food. Say what you're building at the hackathon.</p>
+    <button id="mic" aria-label="Start talking">🎙️</button>
+    <p id="mic-label">Tap to start talking</p>
+    <p id="talk-problem" class="problem" role="alert"></p>
+    <details id="mic-help" class="help">
+      <summary>The microphone doesn't work?</summary>
+      <p><b>iPhone:</b> when Safari asks "Allow microphone?", tap <b>Allow</b>. If you said no before: Settings → Safari → Microphone → Allow, then reload the page.</p>
+      <p><b>Android or computer (Chrome):</b> tap the small icon left of the web address → Microphone → Allow, then reload.</p>
+    </details>
+    <p id="voice-note" class="ready"></p>
+    <button id="retry-voice" class="plain" hidden>Try my own voice again</button>
+    <div id="offer" class="offer" hidden>
+      <p>Did you like it? Now hear it in <b>your own voice</b>: Mythree learns how you sound in 20 seconds.</p>
+      <button id="want-voice" class="big">🎤 Use my own voice</button>
+    </div>
+    <ol id="lines" aria-live="polite"></ol>
+  </section>
+
+  <!-- Step 2 (if they like): lend Mythree your voice for an hour -->
+  <section id="step-voice" class="card" hidden>
+    <h2><span class="num">2</span> Lend Mythree your voice</h2>
+    <p>Mythree listens to you for <b>20 seconds</b> and learns how you sound. Then it speaks <b>as you</b>, in the language you chose.</p>
     <p class="note">This is a hackathon test: Mythree can lend its own-voice magic to <b>7 visitors at a time</b>. If they're all in use, you'll hear a standard voice instead, and everything else works the same. Please tap "Done" when you finish, so the next person can have your place.</p>
-    <label class="lang">Your language
-      <select id="language">
-        <option value="pick">Choose your language…</option>
-        <option value="Telugu">తెలుగు · Telugu</option>
-        <option value="Hindi">हिन्दी · Hindi</option>
-        <option value="Kannada">ಕನ್ನಡ · Kannada</option>
-        <option value="Tamil">தமிழ் · Tamil</option>
-        <option value="Malayalam">മലയാളം · Malayalam</option>
-        <option value="Bengali">বাংলা · Bengali</option>
-        <option value="Marathi">मराठी · Marathi</option>
-        <option value="Gujarati">ગુજરાતી · Gujarati</option>
-        <option value="Punjabi">ਪੰਜਾਬੀ · Punjabi</option>
-        <option value="Urdu">اردو · Urdu</option>
-        <option value="Spanish">Español · Spanish</option>
-        <option value="French">Français · French</option>
-        <option value="German">Deutsch · German</option>
-        <option value="Portuguese">Português · Portuguese</option>
-        <option value="Italian">Italiano · Italian</option>
-        <option value="Arabic">العربية · Arabic</option>
-        <option value="Chinese">中文 · Chinese</option>
-        <option value="Japanese">日本語 · Japanese</option>
-        <option value="Korean">한국어 · Korean</option>
-        <option value="Russian">Русский · Russian</option>
-        <option value="Indonesian">Bahasa Indonesia</option>
-        <option value="Vietnamese">Tiếng Việt · Vietnamese</option>
-        <option value="Turkish">Türkçe · Turkish</option>
-        <option value="Thai">ไทย · Thai</option>
-        <option value="English">English</option>
-        <option value="">Another language: I'll talk freely</option>
-      </select>
-    </label>
-    <div id="passage-box" class="passage-box" hidden>
+    <div id="passage-box" class="passage-box">
       <p class="soft">When you tap <b>Start</b>, read this aloud, warmly, like you're talking to a friend. Mythree stops by itself after 20 seconds.</p>
-      <blockquote id="passage"></blockquote>
+      <blockquote id="passage" dir="auto"></blockquote>
     </div>
     <label class="consent"><input type="checkbox" id="consent">
-      <span>I agree that Mythree makes a copy of my voice, only to speak my words in English on this page. It is deleted when I tap "Done", when I close the page, or after one hour at the latest.</span>
+      <span>I agree that Mythree makes a copy of my voice, only to speak my words on this page. It is deleted when I tap "Done", when I close the page, or after one hour at the latest.</span>
     </label>
     <div class="row">
       <button id="rec" class="big">● Start reading</button>
@@ -128,31 +132,7 @@
     </div>
     <div class="bar" aria-hidden="true"><div id="rec-bar"></div></div>
     <p id="voice-problem" class="problem" role="alert"></p>
-    <button id="skip" class="plain">No thanks, use a standard voice</button>
-    <details id="mic-help" class="help">
-      <summary>The microphone doesn't work?</summary>
-      <p><b>iPhone:</b> when Safari asks "Allow microphone?", tap <b>Allow</b>. If you said no before: Settings → Safari → Microphone → Allow, then reload the page.</p>
-      <p><b>Android or computer (Chrome):</b> tap the small icon left of the web address → Microphone → Allow, then reload.</p>
-    </details>
-  </section>
-
-  <!-- Step 2: talk, and hear it back in English -->
-  <section id="step-talk" class="card" hidden>
-    <h2><span class="num">2</span> Speak, and hear yourself in English</h2>
-    <p id="voice-note" class="ready"></p>
-    <button id="retry-voice" class="plain" hidden>Try my own voice again</button>
-    <p id="lang-note" class="soft"></p>
-    <ol class="steps-list">
-      <li>Tap the <b>green button</b> once. It turns <b>red</b>: Mythree is listening.</li>
-      <li>Say <b>one or two sentences</b> in your language.</li>
-      <li>Tap the <b>red button</b> when you're done.</li>
-      <li>In a few seconds you'll <b>read</b> it in English and <b>hear yourself</b> say it. Tap 🔁 to hear it again.</li>
-    </ol>
-    <p class="soft">Ideas: tell your mother you miss her. Say a proverb from your language. Describe your favourite food. Say what you're building at the hackathon.</p>
-    <button id="mic" aria-label="Start talking">🎙️</button>
-    <p id="mic-label">Tap to start talking</p>
-    <p id="talk-problem" class="problem" role="alert"></p>
-    <ol id="lines" aria-live="polite"></ol>
+    <button id="skip" class="plain">Not now</button>
   </section>
 
   <!-- Step 3: done -->

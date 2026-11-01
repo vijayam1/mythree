@@ -289,9 +289,9 @@ def test_try_page_any_language_into_english_in_your_own_voice(monkeypatch):
     no_passcode(monkeypatch)
     assert client.get("/try").status_code == 200
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "मेरा नाम प्रिया है")
-    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "My name is Priya")
+    monkeypatch.setattr("app.brain.to_language", lambda text, to="English", work=None: "My name is Priya")
     m = client.post("/api/try/heard", files={"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}).json()
-    assert (m["text"], m["english"]) == ("मेरा नाम प्रिया है", "My name is Priya")   # Hindi stays Hindi here
+    assert (m["text"], m["translation"], m["to"]) == ("मेरा नाम प्रिया है", "My name is Priya", "English")   # Hindi stays Hindi here
     assert [w["model"] for w in m["meta"]] == ["Muse Voice Transcribe"]   # shown under the sentence
     spoken = []
     monkeypatch.setattr("app.voice.speak_as", lambda text, lang, v: spoken.append((text, lang, v)) or iter([b"mp3"]))
@@ -334,11 +334,53 @@ def test_try_page_tells_the_ears_the_visitors_language(monkeypatch):
     no_passcode(monkeypatch)
     told = []
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: told.append(languages) or "ಮಂಚಿತನ")
-    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "goodness")
+    monkeypatch.setattr("app.brain.to_language", lambda text, to="English", work=None: "goodness")
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
     m = client.post("/api/try/heard", files=wav, data={"language": "Telugu"}).json()
     assert told == [["Telugu"]] and m["text"] == "మంచితన"   # Kannada letters that slipped through → Telugu
     assert client.post("/api/try/heard", files=wav, data={"language": "Klingon"}).status_code == 400
+    assert client.post("/api/try/heard", files=wav, data={"to": "Klingon"}).status_code == 400
+
+
+def test_try_page_speaks_any_language_into_any_language(monkeypatch):
+    no_passcode(monkeypatch)
+    asked = []
+    monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hello grandpa")
+    monkeypatch.setattr("app.brain.to_language", lambda text, to="English", work=None: asked.append(to) or "Hola abuelo")
+    wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
+    m = client.post("/api/try/heard", files=wav, data={"language": "English", "to": "Spanish"}).json()
+    assert (m["translation"], m["to"], asked) == ("Hola abuelo", "Spanish", ["Spanish"])
+    spoken = []
+    monkeypatch.setattr("app.voice.speak_as", lambda text, lang, v: spoken.append((text, lang, v)) or iter([b"mp3"]))
+    assert client.post("/api/try/speak", json={"text": "Hola abuelo", "language": "Spanish"}).content == b"mp3"
+    assert spoken == [("Hola abuelo", "es", voice.STANDARD_VOICES["anyone"])]   # no voice lent yet: a ready-made one
+    reply = client.post("/api/try/speak", json={"text": "नमः", "language": "Sanskrit"})
+    assert reply.status_code == 404 and "Read it" in reply.json()["detail"] and len(spoken) == 1   # no voice yet
+    assert client.post("/api/try/speak", json={"text": "x", "language": "Klingon"}).status_code == 400
+
+
+def test_visitors_voices_have_a_daily_share_so_a_busy_day_cant_spend_the_month(monkeypatch):
+    no_passcode(monkeypatch)
+    from app import main
+    monkeypatch.setattr(main, "stats_days", {})
+    monkeypatch.setattr(main, "TRY_CHARACTERS_PER_DAY", 30)
+    spoken = []
+    monkeypatch.setattr("app.voice.speak_as", lambda text, lang, v: spoken.append(text) or iter([b"mp3"]))
+    assert client.post("/api/try/speak", json={"text": "Hola abuelo, te extraño."}).status_code == 200   # 24
+    reply = client.post("/api/try/speak", json={"text": "¿Comiste bien hoy?"})   # 24 + 18 > 30
+    assert reply.status_code == 503 and "tomorrow" in reply.json()["detail"] and len(spoken) == 1
+    assert client.post("/api/try/speak", json={"text": "Hola."}).status_code == 200   # a short one still fits
+    files = {"audio": ("v.wav", wav_of(25), "audio/wav")}
+    monkeypatch.setattr(main, "TRY_CHARACTERS_PER_DAY", 29)   # used up: no point copying a voice today
+    assert client.post("/api/try/voice", files=files, data={"consent": "true"}).status_code == 503
+    assert main.stats_days[main.dallas_day()]["characters"] == 29
+
+
+def test_the_try_page_lists_indias_22_languages_and_the_world(monkeypatch):
+    lists = client.get("/api/try/languages").json()
+    assert len(lists["india"]) == 22 and {"Telugu", "Sanskrit", "Santali"} <= {l["name"] for l in lists["india"]}
+    voiced = [l for l in lists["india"] + lists["world"] if l["code"]]
+    assert len(voiced) == 94 and lists["world"][0] == {"name": "English", "native": "English", "code": "en"}
 
 
 def test_visitors_still_testing_keep_their_voice_and_the_newcomer_hears_a_standard_voice(monkeypatch):
@@ -358,9 +400,9 @@ def test_visitors_still_testing_keep_their_voice_and_the_newcomer_hears_a_standa
 def test_no_passcode_is_asked_for_calls_or_the_try_page(monkeypatch):
     monkeypatch.setattr("app.main.secret", lambda name: "family-passcode" if name == "MYTHREE_PASSCODE" else None)
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hola")
-    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "Hello")
+    monkeypatch.setattr("app.brain.to_language", lambda text, to="English", work=None: "Hello")
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
-    assert client.post("/api/try/heard", files=wav).json()["english"] == "Hello"
+    assert client.post("/api/try/heard", files=wav).json()["translation"] == "Hello"
     assert client.post("/api/calls", json={"who": "x", "lang": "te"}).status_code == 200
 
 
@@ -380,7 +422,7 @@ def test_the_free_page_has_a_daily_limit(monkeypatch):
     no_passcode(monkeypatch)
     from app import main
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "Hola")
-    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "Hello")
+    monkeypatch.setattr("app.brain.to_language", lambda text, to="English", work=None: "Hello")
     monkeypatch.setattr(main, "try_today", {"day": __import__("time").strftime("%Y-%m-%d"), "count": main.TRY_PER_DAY})
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
     reply = client.post("/api/try/heard", files=wav)
@@ -444,7 +486,7 @@ def test_the_visitors_page_counts_numbers_only(monkeypatch):
     from app import main
     main.stats_days.clear()
     monkeypatch.setattr("app.meta.transcribe", lambda wav, languages=None: "నమస్తే")
-    monkeypatch.setattr("app.brain.to_english", lambda text, work=None: "Hello")
+    monkeypatch.setattr("app.brain.to_language", lambda text, to="English", work=None: "Hello")
     monkeypatch.setattr("app.voice.try_voices", lambda: {"visitor1": 0})
     wav = {"audio": ("s.wav", b"RIFF" + b"\0" * 100, "audio/wav")}
     client.post("/api/try/heard", files=wav, data={"language": "Telugu"})

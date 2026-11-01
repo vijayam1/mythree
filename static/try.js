@@ -1,7 +1,8 @@
-// Try Mythree: speak any language, hear yourself speak English, in your own voice.
-// 1. The visitor records about 20 seconds (with consent); Mythree copies the voice for one hour.
-// 2. Tap the mic, speak, tap again: Meta's ears find the language, the brain makes it English,
-//    and the visitor hears it in their own voice. 🔁 plays it again, free.
+// Try Mythree: speak any language, hear yourself speak any other, even in your own voice.
+// 1. Choose "I speak" (or let Meta find it) and "Hear it in". Tap the mic, speak, tap again: Meta's ears
+//    hear it, the brain translates it, and a ready-made voice says it. 🔁 plays it again, free.
+// 2. If they like it: the visitor records about 20 seconds (with consent), Mythree copies the voice for
+//    one hour, and says their last sentence again, now as them.
 
 const TARGET_RATE = 16000;   // Meta wants 16 kHz
 const RECORD_S = 21, SHOWN_S = 20, MAX_SENTENCE_S = 30;   // records 21 s, shows 20: a little spare, so it's never short
@@ -46,24 +47,75 @@ async function record(onTick, seconds) {
 
 const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-// --- Step 1: your voice --------------------------------------------------------
-let myVoice = "", recording = null;
+// --- The two language lists (from the server, so the page and the server always agree) ---
+let voiceCode = {};   // language → its voice code, or null when Mythree can only show it in writing
 
-// The visitor chooses a language and sees a passage to read; the recording stops by itself.
-const chosen = () => ($("language").value === "pick" ? "" : $("language").value);
-
-function showPassage() {
-  const pick = $("language").value;
-  if (pick !== "pick") $("voice-problem").textContent = "";
-  $("passage-box").hidden = pick === "pick";
-  $("passage").textContent = PASSAGES[pick] ?? "";
-  $("passage").dir = RIGHT_TO_LEFT.has(pick) ? "rtl" : "ltr";
-  try { localStorage.setItem("mythree-try-language", pick); } catch { /* private window */ }
+function fill(select, groups, first) {
+  select.replaceChildren();
+  if (first) select.append(new Option(first, ""));
+  for (const [label, list] of groups) {
+    const group = document.createElement("optgroup");
+    group.label = label;
+    for (const l of list) {
+      const name = l.native === l.name ? l.name : `${l.native} · ${l.name}`;
+      group.append(new Option(select.id === "to" && !l.code ? `${name} (read only)` : name, l.name));
+    }
+    select.append(group);
+  }
 }
-try { $("language").value = localStorage.getItem("mythree-try-language") || "pick"; } catch { /* private window */ }
-if (!$("language").value) $("language").value = "pick";
-$("language").addEventListener("change", showPassage);
-showPassage();
+
+function remembered(key, fallback) {
+  try { return localStorage.getItem(key) || fallback; } catch { return fallback; }   // private window
+}
+function remember(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* private window */ }
+}
+
+async function loadLanguages() {
+  const { india, world } = await (await api("/api/try/languages")).json();
+  for (const l of [...india, ...world]) voiceCode[l.name] = l.code;
+  const groups = [["India's 22 languages", india], ["The world", world]];
+  fill($("language"), groups, "✨ Let Meta find my language");
+  fill($("to"), groups);
+  const from = remembered("mythree-try-language", "");
+  $("language").value = from in voiceCode ? from : "";
+  const to = remembered("mythree-try-to", "English");
+  $("to").value = to in voiceCode ? to : "English";
+  showPassage();
+}
+loadLanguages();
+
+$("language").addEventListener("change", () => { remember("mythree-try-language", $("language").value); showPassage(); });
+$("to").addEventListener("change", () => remember("mythree-try-to", $("to").value));
+$("swap").addEventListener("click", () => {
+  const from = $("language").value, to = $("to").value;
+  $("language").value = to;
+  $("to").value = from && from !== to ? from : to === "English" ? "Hindi" : "English";
+  remember("mythree-try-language", $("language").value);
+  remember("mythree-try-to", $("to").value);
+  showPassage();
+});
+
+// --- Step 2 (if they like it): your voice ----------------------------------------
+let myVoice = "", recording = null;
+let last = null;   // the last sentence heard ({line, text, to}), said again in the visitor's voice once it's ready
+
+function showPassage() {   // a passage in the visitor's language, or "talk freely"
+  $("passage").textContent = PASSAGES[$("language").value] ?? PASSAGES[""];
+}
+
+$("want-voice").addEventListener("click", () => {
+  unlockSound();
+  $("offer").hidden = true;
+  $("step-voice").hidden = false;
+  $("step-voice").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+$("skip").addEventListener("click", () => {
+  $("step-voice").hidden = true;
+  $("offer").hidden = false;
+  $("step-talk").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 $("rec").addEventListener("click", async () => {
   unlockSound();
@@ -77,7 +129,6 @@ $("rec").addEventListener("click", async () => {
     $("rec-bar").style.width = "0";
     return;
   }
-  if ($("language").value === "pick") return ($("voice-problem").textContent = "First choose your language above.");
   if (!$("consent").checked) return ($("voice-problem").textContent = "Tick the box to agree, then tap Start.");
   $("voice-problem").textContent = "";
   try {
@@ -87,7 +138,7 @@ $("rec").addEventListener("click", async () => {
     }, RECORD_S);
   } catch {
     $("mic-help").open = true;
-    return ($("voice-problem").textContent = "Mythree can't use your microphone yet. See how to allow it, just below.");
+    return ($("voice-problem").textContent = "Mythree can't use your microphone yet. See how to allow it in step 1.");
   }
   $("rec").classList.add("on");
   $("rec").textContent = "Reading… (tap to start over)";
@@ -102,58 +153,62 @@ $("rec").addEventListener("click", async () => {
 
 let lastWav = null;   // the visitor's 20 seconds, kept on this phone, so "Try my own voice again" needs no re-reading
 
-async function learn(wav) {
-  lastWav = wav;
-  $("rec").textContent = "Learning your voice… (about 5 seconds)";
+async function lendVoice(wav) {
   const form = new FormData();
   form.append("audio", wav, "voice.wav");
   form.append("consent", "true");
-  const reply = await api("/api/try/voice", { method: "POST", body: form });
-  $("rec").textContent = "● Start recording";
+  return api("/api/try/voice", { method: "POST", body: form });
+}
+
+async function learn(wav) {
+  lastWav = wav;
+  $("rec").textContent = "Learning your voice… (about 5 seconds)";
+  const reply = await lendVoice(wav);
+  $("rec").textContent = "● Start reading";
+  $("rec-bar").style.width = "0";
   if (reply.status === 503) {   // all voice places in use: go on with a standard voice, and offer to try again later
-    showTalk(await problemOf(reply));
+    backToTalk(await problemOf(reply));
     $("retry-voice").hidden = false;
     return;
   }
-  if (!reply.ok) return ($("voice-problem").textContent = (await problemOf(reply)) + " You can also use a standard voice.");
-  myVoice = (await reply.json()).voice;
-  $("rec-bar").style.width = "0";
-  showTalk("🎉 Your voice is ready. Listen: that's you, speaking English!");
-  greet();
-}
-
-// The first wow: as soon as the voice is learned, Mythree says hello in English, in that voice.
-async function greet() {
-  const reply = await api(`/api/try/hello/${myVoice}`, { method: "POST" });
-  if (reply.ok) play(URL.createObjectURL(await reply.blob()));
+  if (!reply.ok) return ($("voice-problem").textContent = (await problemOf(reply)) + " You can also go on with a standard voice.");
+  voiceReady((await reply.json()).voice);
 }
 
 $("retry-voice").addEventListener("click", async () => {
   $("retry-voice").hidden = true;
   $("voice-note").textContent = "Learning your voice… (about 5 seconds)";
-  const form = new FormData();
-  form.append("audio", lastWav, "voice.wav");
-  form.append("consent", "true");
-  const reply = await api("/api/try/voice", { method: "POST", body: form });
+  const reply = await lendVoice(lastWav);
   if (!reply.ok) {
     $("voice-note").textContent = await problemOf(reply);
     $("retry-voice").hidden = false;
     return;
   }
-  myVoice = (await reply.json()).voice;
-  showTalk("🎉 Your voice is ready. Listen: that's you, speaking English!");
-  greet();
+  voiceReady((await reply.json()).voice);
 });
 
-$("skip").addEventListener("click", () => { unlockSound(); showTalk("You'll hear a standard voice (not your own)."); });
-
-function showTalk(note) {
+function backToTalk(note) {
   $("step-voice").hidden = true;
-  $("step-talk").hidden = false;
   $("voice-note").textContent = note;
-  const name = $("language").selectedOptions[0]?.text;
-  $("lang-note").textContent = chosen() ? `Your language: ${name}` : "Mythree will find your language by itself.";
-  $("step-done").hidden = !myVoice;
+  $("step-talk").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// The wow: as soon as the voice is learned, Mythree says the last sentence again, as the visitor.
+function voiceReady(id) {
+  myVoice = id;
+  $("step-done").hidden = false;
+  if (last) {
+    backToTalk("🎉 Your voice is ready. Listen: your last sentence, now in your own voice!");
+    speak(last.line, last.text, last.to);
+  } else {
+    backToTalk("🎉 Your voice is ready. Listen: that's you!");
+    greet();
+  }
+}
+
+async function greet() {
+  const reply = await api(`/api/try/hello/${myVoice}`, { method: "POST" });
+  if (reply.ok) play(URL.createObjectURL(await reply.blob()));
 }
 
 $("forget").addEventListener("click", async () => {
@@ -171,7 +226,7 @@ window.addEventListener("pagehide", () => {
   myVoice = "";
 });
 
-// --- Step 2: talk, and hear it in English ---------------------------------------
+// --- Step 1: talk, and hear it in the language you chose -------------------------
 let talking = null;
 
 $("mic").addEventListener("click", async () => {
@@ -188,7 +243,8 @@ $("mic").addEventListener("click", async () => {
   try {
     talking = await record(() => {}, MAX_SENTENCE_S);
   } catch {
-    return ($("talk-problem").textContent = "Mythree can't use your microphone. Allow it in your browser (see step 1's help), then reload.");
+    $("mic-help").open = true;
+    return ($("talk-problem").textContent = "Mythree can't use your microphone. See how to allow it just below, then reload.");
   }
   showMic(true);
   talking.result.then(({ wav }) => { if (talking) { talking = null; showMic(false); send(wav); } });
@@ -202,25 +258,28 @@ function showMic(on) {
 
 async function send(wav) {
   const line = document.createElement("li");
-  line.innerHTML = '<div class="said"></div><div class="english"></div><div class="status">Hearing and translating… (a few seconds)</div><div class="meta-work"></div>';
+  line.innerHTML = '<div class="said" dir="auto"></div><div class="translation" dir="auto"></div>'
+                 + '<div class="status">Hearing and translating… (a few seconds)</div><div class="meta-work"></div>';
   $("lines").prepend(line);
+  const to = $("to").value || "English";
   const form = new FormData();
   form.append("audio", wav, "sentence.wav");
-  form.append("language", chosen());   // told to the ears, so Telugu isn't written in Kannada letters
+  form.append("language", $("language").value);   // told to the ears, so Telugu isn't written in Kannada letters
+  form.append("to", to);
   const reply = await api("/api/try/heard", { method: "POST", body: form });
   const status = line.querySelector(".status");
   if (!reply.ok) { status.textContent = await problemOf(reply); return; }
-  const { text, english, meta } = await reply.json();
+  const { text, translation, meta } = await reply.json();
   metaAtWork(line.querySelector(".meta-work"), meta);
   if (!text) {
     status.textContent = "Mythree didn't hear any words. Speak a little louder, for a few seconds, then tap the red button.";
     return;
   }
   line.querySelector(".said").textContent = text;
-  line.querySelector(".english").textContent = english;
-  status.textContent = myVoice ? "Speaking in your voice…" : "";
-  await speak(line, english);
-  status.textContent = "";
+  line.querySelector(".translation").textContent = translation;
+  last = { line, text: translation, to };
+  await speak(line, translation, to);
+  if (!myVoice && $("step-voice").hidden) $("offer").hidden = false;
 }
 
 // "Meta at work", for the hackathon demo: which Meta model heard the sentence, which translated it, and how fast.
@@ -247,16 +306,21 @@ function unlockSound() {   // phones play sound only after a tap
   voice.play().catch(() => { unlocked = false; });
 }
 
-async function speak(line, english) {
-  let again = () => standardVoice(english);
-  if (myVoice) {
-    const reply = await api("/api/try/speak", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ text: english, voice: myVoice }) });
-    if (reply.ok) {
-      const sound = URL.createObjectURL(await reply.blob());
-      again = () => play(sound);
-    }
+async function speak(line, text, to) {
+  const status = line.querySelector(".status");
+  const code = voiceCode[to];
+  if (!code) { status.textContent = `Mythree has no voice for ${to} yet. Read it above!`; return; }
+  status.textContent = myVoice ? "Speaking in your voice…" : "Speaking…";
+  let again = () => standardVoice(text, code);
+  const reply = await api("/api/try/speak", { method: "POST", headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ text, voice: myVoice, language: to }) });
+  if (reply.ok) {
+    const sound = URL.createObjectURL(await reply.blob());
+    again = () => play(sound);
+  } else if (reply.status === 503) {   // Mythree's voices are resting (today's share is used): the phone speaks
+    $("voice-note").textContent = await problemOf(reply);
   }
+  line.querySelector(".replay")?.remove();   // said again in the visitor's own voice: the new one replaces it
   const button = document.createElement("button");
   button.className = "replay";
   button.textContent = "🔁";
@@ -264,6 +328,7 @@ async function speak(line, english) {
   button.addEventListener("click", () => { unlockSound(); again(); });
   line.prepend(button);
   again();
+  status.textContent = "";
 }
 
 function play(src) {
@@ -271,11 +336,11 @@ function play(src) {
   return voice.play().catch(() => {});
 }
 
-function standardVoice(text) {
+function standardVoice(text, code) {   // the browser's own voice, when Mythree's voices are resting
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const words = new SpeechSynthesisUtterance(text);
-  words.lang = "en-US";
+  words.lang = code;
   window.speechSynthesis.speak(words);
 }
 
