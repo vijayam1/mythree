@@ -115,3 +115,17 @@ def test_telugu_on_an_english_card_is_still_translated_into_english(monkeypatch)
     reply = client.post("/api/translate", json={"text": "భోజనం చేశావా?", "lang": "en", "to": "te"})
     assert reply.json()["lang"] == "en"
     assert "Translate into English" in seen["m"][-1]["content"]
+
+
+def test_every_meta_call_is_logged_with_its_model_id_but_never_the_words(monkeypatch, capsys):
+    class Reply:
+        status_code = 200
+        def json(self):
+            return {"id": "chatcmpl-123", "choices": [{"message": {"content": "నమస్తే తాతగారు"}}]}
+    monkeypatch.setattr(meta.httpx, "post", lambda *a, **k: Reply())
+    monkeypatch.setattr(meta, "secret", lambda name: "test-key")
+    meta.chat([{"role": "user", "content": "Hi Grandpa"}])
+    logged = capsys.readouterr().out
+    assert "[Meta] meta-models/muse-spark-open-1026 · https://inference.baseten.co/v1/chat/completions" in logged
+    assert "200 OK, answer chatcmpl-123" in logged
+    assert "Grandpa" not in logged and "తాతగారు" not in logged and "test-key" not in logged

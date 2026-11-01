@@ -2,7 +2,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from app import meta, rooms
+from app import meta, rooms, voice
 from app.main import app
 
 client = TestClient(app)
@@ -117,10 +117,45 @@ def test_each_person_is_heard_in_their_own_voice(monkeypatch):
     assert "grandpaVoice1" not in str(news)   # voice IDs never go to the phones
 
 
-def test_no_recorded_voice_means_the_standard_voice(monkeypatch):
+def test_no_recorded_voice_means_a_standard_voice_that_suits_them(monkeypatch):
+    # 31 Oct, calls to India: the phone's own Telugu voice was silent, so Mythree speaks it itself.
+    # Vijaya, 1 Nov: a man's voice for a man, a woman's for a woman.
+    no_passcode(monkeypatch)
+    monkeypatch.setattr("app.brain.translate", lambda *a: "హలో")
+    used = []
+    monkeypatch.setattr("app.voice.speak_as", lambda text, lang, v: used.append((lang, v)) or iter([b"mp3"]))
+    code = client.post("/api/calls", json={"who": "Vijaya, the mother", "lang": "en"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "the grandfather", "lang": "te"})
+    n = client.post(f"/api/calls/{code}/said", json={"person": "a", "text": "Hello"}).json()["n"]
+    reply = client.post(f"/api/calls/{code}/speak", json={"n": n})
+    assert reply.content == b"mp3" and reply.headers["X-Mythree-Voice"] == "standard"
+    assert used == [("te", voice.STANDARD_VOICES["woman"])]
+    assert voice.standard_voice("the grandfather") == voice.STANDARD_VOICES["man"]
+    assert voice.standard_voice("Kiran, the grandson") == voice.STANDARD_VOICES["man"]
+    assert voice.standard_voice("the other person") == voice.STANDARD_VOICES["anyone"]   # not "son"
+
+
+def test_an_own_voice_that_fails_falls_back_to_the_standard_voice(monkeypatch):
     no_passcode(monkeypatch)
     monkeypatch.setattr("app.brain.translate", lambda *a: "Hello")
-    monkeypatch.setattr("app.voice.secret", lambda name: "key")
+
+    def speak_as(text, lang, v):
+        if v == "brokenVoice1":
+            raise voice.VoiceError("ElevenLabs replied 404 (voice_not_found)")
+        return iter([b"standard mp3"])
+    monkeypatch.setattr("app.voice.speak_as", speak_as)
+    monkeypatch.setattr("app.main.voice_gone", lambda v: asyncio.sleep(0, False))
+    code = client.post("/api/calls", json={"who": "the grandfather", "lang": "te", "voice": "brokenVoice1"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "the grandson", "lang": "en"})
+    n = client.post(f"/api/calls/{code}/said", json={"person": "a", "text": "నమస్తే"}).json()["n"]
+    reply = client.post(f"/api/calls/{code}/speak", json={"n": n})
+    assert reply.content == b"standard mp3" and reply.headers["X-Mythree-Voice"] == "standard"
+
+
+def test_when_no_voice_works_the_phone_uses_its_own(monkeypatch):
+    no_passcode(monkeypatch)
+    monkeypatch.setattr("app.brain.translate", lambda *a: "Hello")
+    monkeypatch.setattr("app.voice.secret", lambda name: None)   # no ElevenLabs key at all
     code = client.post("/api/calls", json={"who": "Grandpa", "lang": "te"}).json()["code"]
     client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"})
     n = client.post(f"/api/calls/{code}/said", json={"person": "a", "text": "నమస్తే"}).json()["n"]
@@ -675,3 +710,50 @@ def test_still_there_asks_elevenlabs(monkeypatch):
     monkeypatch.setattr("app.voice.httpx.get", lambda url, **kw: type("R", (), {"status_code": answers[url.rsplit("/", 1)[1]]})())
     assert voice.still_there("live1") and not voice.still_there("gone1") and voice.still_there("busy1")
     assert not voice.still_there("")
+
+
+def test_hear_it_says_gone_for_a_deleted_voice(monkeypatch):
+    # 31 Oct: "Hear it" failed 5 times with a vague error: the phone was using a voice deleted since.
+    from app import voice
+
+    def refuse(*a):
+        raise voice.VoiceError("ElevenLabs replied 404 (voice_not_found)")
+    monkeypatch.setattr("app.voice.speak_as", refuse)
+    monkeypatch.setattr("app.voice.still_there", lambda v: v != "deletedVoice1")
+    assert client.post("/api/voices/deletedVoice1/hello?lang=en").status_code == 410
+    assert client.post("/api/voices/liveVoice1/hello?lang=en").status_code == 503   # there, but busy: not "gone"
+
+
+def test_end_ends_the_call_for_both_phones(monkeypatch):
+    # Vijaya, 1 Nov: if one of them ends the call, it should end for both
+    no_passcode(monkeypatch)
+    code = client.post("/api/calls", json={"who": "Grandpa", "lang": "te"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"})
+    room = rooms.rooms[code]
+    assert client.post(f"/api/calls/{code}/leave", json={"person": "b"}).json() == {"ok": True}
+    assert room.state()["ended"] is True   # a phone waiting for news hears it at once
+    assert client.get(f"/api/calls/{code}?after=0&known=2").status_code == 404   # the next question: ended
+    assert client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"}).status_code == 404
+
+
+def test_the_other_phone_waiting_for_news_hears_the_end_at_once(monkeypatch):
+    no_passcode(monkeypatch)
+    room = rooms.start("Grandpa", "te")
+    rooms.join(room, "b", "Grandson", "en")
+
+    async def scene():
+        waiting = asyncio.create_task(rooms.wait(room, after=0, known=2, person="a"))
+        await asyncio.sleep(0.01)
+        rooms.end(room)
+        return await asyncio.wait_for(waiting, 1)
+    assert asyncio.run(scene())["ended"] is True
+
+
+def test_a_phone_that_stops_asking_has_gone(monkeypatch):
+    no_passcode(monkeypatch)
+    code = client.post("/api/calls", json={"who": "Grandpa", "lang": "te"}).json()["code"]
+    client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"})
+    room = rooms.rooms[code]
+    room.seen["b"] -= rooms.GONE_SECONDS + 1   # the grandson's phone was closed a minute ago
+    assert room.free_places() == ["b"]
+    assert client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"}).json()["person"] == "b"

@@ -24,6 +24,13 @@ OPEN_BRAIN_MODEL = "meta-models/muse-spark-open-1026"  # the hackathon's model; 
 EARS_NAME, OPEN_BRAIN_NAME, BRAIN_NAME = "Muse Voice Transcribe", "Muse Spark Open", "Muse Spark 1.3"
 
 
+def log(model: str, where: str, outcome: str, seconds: float):
+    """One line in the server's log for every call to a Meta model: the model ID, where it ran, how it went,
+    how long it took. This is the proof that each sentence really went to Meta. The family's words are
+    never written to the log, only how many there were."""
+    print(f"[Meta] {model} · {where} · {outcome} · {seconds:.1f} s", flush=True)
+
+
 class MetaError(Exception):
     """Meta's service could not do the job (no key, network, or an error reply)."""
 
@@ -47,18 +54,23 @@ def transcribe(wav: bytes, languages: list[str] | None = None) -> str:
         "request": (None, json.dumps(request), "application/json"),
         "audio": ("sentence.wav", wav, "audio/wav"),
     }
+    key, start = api_key(), time.monotonic()
     try:
         reply = httpx.post(
             f"{BASE}/asr/transcribe",
             files=files,
-            headers={"Authorization": f"Bearer {api_key()}", "Accept": "application/json"},
+            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
             timeout=30,
         )
     except httpx.HTTPError as e:
+        log(EARS_MODEL, f"{BASE}/asr/transcribe", f"could not reach ({e.__class__.__name__})", time.monotonic() - start)
         raise MetaError(f"Could not reach Meta: {e.__class__.__name__}") from e
     if reply.status_code != 200:
+        log(EARS_MODEL, f"{BASE}/asr/transcribe", f"replied {reply.status_code}", time.monotonic() - start)
         raise MetaError(f"Meta replied {reply.status_code}")
-    return reply.json().get("transcript", "").strip()
+    words = reply.json().get("transcript", "").strip()
+    log(EARS_MODEL, f"{BASE}/asr/transcribe", f"200 OK, heard {len(words.split())} words", time.monotonic() - start)
+    return words
 
 
 class LiveEars:
@@ -77,7 +89,7 @@ class LiveEars:
     """
 
     def __init__(self, languages: list[str]):
-        self.languages, self.line = languages, None
+        self.languages, self.line, self.session, self.ended = languages, None, "", 0.0
 
     async def __aenter__(self):
         handshake = {"authorization": {"accessToken": f"Bearer {api_key()}"},
@@ -93,6 +105,7 @@ class LiveEars:
         if "sessionId" not in ack:
             await self.__aexit__()
             raise MetaError(f"Meta's live ears said no: {ack.get('message', ack)}")
+        self.session = str(ack["sessionId"])
         return self
 
     async def __aexit__(self, *_):
@@ -106,6 +119,7 @@ class LiveEars:
             raise MetaError("Meta's live ears stopped listening") from e
 
     async def end(self):
+        self.ended = time.monotonic()
         try:
             await self.line.send(json.dumps({"type": "endStream"}))
         except websockets.WebSocketException as e:
@@ -119,7 +133,11 @@ class LiveEars:
                 if m.get("type") == "error":
                     raise MetaError(f"Meta's live ears: {m.get('message', 'error')}")
                 if m.get("type") == "transcript":
-                    yield m.get("transcript", "").strip(), bool(m.get("final"))
+                    words = m.get("transcript", "").strip()
+                    if m.get("final"):
+                        log(EARS_MODEL, f"{LIVE_EARS} (session {self.session})",
+                            f"heard live, {len(words.split())} words", time.monotonic() - (self.ended or time.monotonic()))
+                    yield words, bool(m.get("final"))
                     if m.get("final"):
                         return
         except websockets.WebSocketException as e:
@@ -164,6 +182,7 @@ class timed:
 
 
 def _ask(base: str, auth: str, model: str, messages: list[dict], thinking: dict) -> str:
+    start = time.monotonic()
     try:
         reply = httpx.post(
             f"{base}/chat/completions",
@@ -172,7 +191,11 @@ def _ask(base: str, auth: str, model: str, messages: list[dict], thinking: dict)
             timeout=20,
         )
     except httpx.HTTPError as e:
+        log(model, f"{base}/chat/completions", f"could not reach ({e.__class__.__name__})", time.monotonic() - start)
         raise MetaError(f"Could not reach {base}: {e.__class__.__name__}") from e
     if reply.status_code != 200:
+        log(model, f"{base}/chat/completions", f"replied {reply.status_code}", time.monotonic() - start)
         raise MetaError(f"{base} replied {reply.status_code}")
-    return reply.json()["choices"][0]["message"]["content"].strip()
+    answer = reply.json()
+    log(model, f"{base}/chat/completions", f"200 OK, answer {answer.get('id', '')}".strip(), time.monotonic() - start)
+    return answer["choices"][0]["message"]["content"].strip()

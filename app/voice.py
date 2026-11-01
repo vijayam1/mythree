@@ -11,6 +11,7 @@ ElevenLabs can't. The sound is streamed: the first words play while the rest
 is still being made.
 """
 
+import re
 from collections.abc import Iterator
 
 import httpx
@@ -59,6 +60,22 @@ def speak_as(text: str, lang: str, voice: str | None) -> Iterator[bytes]:
         request["voice_settings"] = {"stability": 0.75, "similarity_boost": 0.9, "speed": 0.92}
     return _stream("ElevenLabs", "POST", f"{ELEVENLABS}/text-to-speech/{voice}/stream",
                    headers={"xi-api-key": key}, params={"output_format": "mp3_44100_128"}, json=request)
+
+
+# --- A standard voice, for someone who chose not to record their own -------------
+# 31 Oct, calls to India: a friend who hadn't recorded his voice was silent on her phone, because the
+# phone itself had no Telugu voice. ElevenLabs' ready-made voices speak Telugu and English on every
+# phone (and use no voice place). Vijaya, 1 Nov: a man's voice for a man, a woman's for a woman.
+STANDARD_VOICES = {"man": "nPczCjzI2devNBz1zQrb",      # Brian: deep, comforting
+                   "woman": "XrExE9yKIg1WjnnlVkGX",    # Matilda: warm, middle-aged
+                   "anyone": "SAz9YHcvj6GT2YYXdXww"}   # River: neutral (a friend: we don't know)
+MEN = re.compile(r"\b(grandfather|father|grandson|son|brother|husband|uncle|thatha)\b", re.I)
+WOMEN = re.compile(r"\b(grandmother|mother|granddaughter|daughter|sister|wife|aunt|ammamma|nanamma)\b", re.I)
+
+
+def standard_voice(who: str) -> str:
+    """A ready-made voice that suits this person ("the grandfather", "Vijaya, the mother", "a friend")."""
+    return STANDARD_VOICES["man" if MEN.search(who) else "woman" if WOMEN.search(who) else "anyone"]
 
 
 # --- Learning a voice in the app ----------------------------------------------

@@ -258,6 +258,11 @@
   <section id="answer" class="card answer" hidden>
     <div id="caller-face" class="caller-face" aria-hidden="true">📞</div>
     <p id="caller-line" class="caller-line"></p>
+    <!-- No voice of their own yet: ask them to record it first, so they are heard in their own voice. -->
+    <div id="answer-voice" class="voice-box" hidden>
+      <p id="answer-voice-line"></p>
+      <button id="answer-record" class="plain"></button>
+    </div>
     <button id="answer-btn" class="answer-btn"><span aria-hidden="true">📞</span><span id="answer-word"></span></button>
     <p id="allow-hint" class="allow-hint"></p>
     <p id="answer-problem" class="problem" role="alert"></p>

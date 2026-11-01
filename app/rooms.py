@@ -18,6 +18,7 @@ MAX_ROOMS = 100     # enough for testers and judges; stops strangers filling the
 WAIT_SECONDS = 25   # a phone waits this long for news before asking again
 KEEP_SOUNDS = 6     # voices kept for the newest sentences only
 MAX_NOTES = 40      # video notes per person per call (a handful is normal); stops a runaway phone
+GONE_SECONDS = 60   # a phone in a call asks for news at least every WAIT_SECONDS: silent this long, it has gone
 
 store = None        # online: a modal.Dict, set by modal_app.py. Locally and in tests: memory only.
 saving: set = set() # copies being written to the store right now
@@ -38,6 +39,7 @@ class Sound:
     def __init__(self):
         self.pieces: list[bytes] = []
         self.done = False
+        self.standard = False   # Mythree's standard voice, not the speaker's own
         self.news = asyncio.Event()
 
     def changed(self):
@@ -57,11 +59,23 @@ class Room:
         self.tasks: set = set()              # voices being made right now
         self.notes: dict[str, list] = {"a": [], "b": []}   # video notes waiting for each person (memory only)
         self.news = asyncio.Event()          # set whenever something changes, to wake waiting phones
+        self.seen: dict[str, float] = {}     # when each person's phone last asked for news (memory only)
+        self.ended = False                   # someone tapped End: the call is over for both
         self.used = time.monotonic()
         self.dirty = False                   # changed since the last copy to the store
 
     def other(self, person: str) -> dict | None:
         return self.people.get("b" if person == "a" else "a")
+
+    def here(self, person: str) -> bool:
+        """Is this person still in the call? Not if their phone stopped asking for news (closed, lost,
+        out of battery). 31 Oct: nobody could join again after one person's phone was gone."""
+        return person in self.people and time.monotonic() - self.seen.get(person, 0) < GONE_SECONDS
+
+    def free_places(self) -> list[str]:
+        """The places a newcomer may take: "b" if it is empty or its person's phone has gone. Never "a":
+        a caller's phone is often quiet for a while, sending the invitation in WhatsApp."""
+        return [] if self.here("b") else ["b"]
 
     def changed(self):
         """Wake every phone that is waiting, then get ready for the next change."""
@@ -81,7 +95,7 @@ class Room:
 
     def state(self, after: int = 0, person: str = "", seen: int = 0) -> dict:
         return {"code": self.code, "people": self.people, "invite": self.invite, "messages": self.messages[after:],
-                "notes": self.new_notes(person, seen)}
+                "notes": self.new_notes(person, seen), "away": [p for p in self.people if not self.here(p)], "ended": self.ended}
 
 
 rooms: dict[str, Room] = {}
@@ -105,6 +119,12 @@ def save(room: Room):
 async def _write(room: Room):
     while room.dirty:
         room.dirty = False
+        if room.ended:   # no copy of an ended call is kept: its words are forgotten at once
+            try:
+                await store.pop.aio(room.code)
+            except Exception:
+                pass
+            return
         copy = {"key": room.key, "invite": room.invite, "people": room.people, "voices": room.voices, "messages": room.messages,
                 "saved": time.time()}
         try:
@@ -133,6 +153,7 @@ async def _from_store(code: str) -> Room | None:
     room = rooms[code] = Room(code)
     room.key, room.people, room.voices, room.messages = copy.get("key", ""), copy["people"], copy["voices"], copy["messages"]
     room.invite = copy.get("invite")
+    room.seen = dict.fromkeys(room.people, time.monotonic())   # after a restart, give both phones time to ask again
     return room
 
 
@@ -155,6 +176,7 @@ def start(who: str, lang: str, voice: str = "") -> Room:
     room = rooms[code] = Room(code)
     room.people["a"] = {"who": who, "lang": lang}
     room.voices["a"] = voice
+    room.seen["a"] = time.monotonic()
     save(room)
     return room
 
@@ -164,18 +186,29 @@ async def find(code: str) -> Room:
     room = rooms.get(code)
     if not room and store is not None:   # Mythree restarted: the call may be in the store
         room = await _from_store(code)
-    if not room:
+    if not room or room.ended:
         raise RoomError(ENDED)
     return room
 
 
-def join(room: Room, who: str, lang: str, voice: str = "") -> str:
-    if "b" in room.people:
-        raise RoomError("This call already has two people.")
-    room.people["b"] = {"who": who, "lang": lang}
-    room.voices["b"] = voice
+FULL = "This call already has two people. · ఈ కాల్‌లో ఇద్దరు ఉన్నారు."
+
+
+def join(room: Room, place: str, who: str, lang: str, voice: str = "") -> str:
+    """Take place `place` (from free_place): a new person, or someone coming back after leaving."""
+    room.people[place] = {"who": who, "lang": lang}
+    room.voices[place] = voice
+    room.notes[place] = []   # an earlier phone's video notes are not for this one
+    room.seen[place] = time.monotonic()
     room.changed()
-    return "b"
+    return place
+
+
+def end(room: Room):
+    """Someone tapped End: the call ends for both phones (Vijaya, 1 Nov), and its words are forgotten.
+    (The room stays in memory a while, marked ended, so a late request hears "the call has ended".)"""
+    room.ended = True
+    room.changed()   # the other phone, waiting for news, hears it at once
 
 
 def add(room: Room, message: dict) -> dict:
@@ -199,9 +232,13 @@ def note(room: Room, person: str, note: dict):
 async def wait(room: Room, after: int, known: int, person: str = "", seen: int = 0) -> dict:
     """Answer as soon as there is news (a message after number `after`, more than `known` people,
     or a video note for `person` after number `seen`), or after WAIT_SECONDS."""
+    if person in room.people:
+        room.seen[person] = time.monotonic()   # this phone is still in the call
     if len(room.messages) <= after and len(room.people) <= known and not room.new_notes(person, seen):
         try:
             await asyncio.wait_for(room.news.wait(), WAIT_SECONDS)
         except TimeoutError:
             pass
+    if person in room.people:
+        room.seen[person] = time.monotonic()
     return room.state(after, person, seen)

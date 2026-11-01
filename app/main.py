@@ -361,18 +361,34 @@ async def voice_gone(voice_id: str) -> bool:
 async def join_call(code: str, me: Person, key: str = CallKey):
     """Join a call with its code: you are person "b"."""
     room = await room_or_404(code, key)
-    if me.answer and room.invite:   # the invited person tapped Answer: the caller already chose for them
+    invited = bool(me.answer and room.invite)
+    if invited:   # the invited person tapped Answer: the caller already chose for them
         me.who, me.lang = room.invite["who"], room.invite["lang"]
     if me.lang not in LANGUAGES:
         raise HTTPException(400, "Unknown language")
-    if me.lang == room.people["a"]["lang"]:
+    free = room.free_places()   # empty, or freed by a phone that has gone
+    if not free:
+        raise HTTPException(409, rooms.FULL)
+    # (only "b" can be free, so this checks that the two languages differ)
+    place = next((p for p in free if (room.other(p) or {}).get("lang") != me.lang), None)
+    if not place:
         raise HTTPException(400, "You both chose the same language. Please choose the other one.")
     gone = await voice_gone(me.voice)
-    try:
-        person = rooms.join(room, me.who or "the other person", me.lang, "" if gone else me.voice)
-    except rooms.RoomError as e:
-        raise HTTPException(409, str(e))
+    person = rooms.join(room, place, me.who or "the other person", me.lang, "" if gone else me.voice)
     return {"code": room.code, "person": person, "key": room.key, "voice_gone": gone}
+
+
+class Leaving(BaseModel):
+    person: str = Field(pattern=r"^[ab]$")
+
+
+@app.post("/api/calls/{code}/leave")
+async def leave_call(code: str, who: Leaving, key: str = CallKey):
+    """End: the call ends for both phones; the other phone is told at once."""
+    room = await room_or_404(code, key)
+    if who.person in room.people:
+        rooms.end(room)
+    return {"ok": True}
 
 
 @app.get("/api/calls/{code}")
@@ -573,11 +589,16 @@ async def share(room: rooms.Room, person: str, said: str, work: list | None = No
                                  "మళ్ళీ ఒకసారి చెప్పండి.")
     m = rooms.add(room, {"person": person, "text": said, "lang": lang,
                          "translation": text, "to": to, "at": time.time(), "meta": work})
-    if room.voices.get(person):   # start making the voice now, before the other phone asks for it
-        sound = room.sounds[m["n"]] = rooms.Sound()
-        room.tasks.add(task := asyncio.create_task(make_voice(sound, text, to, room.voices[person])))
-        task.add_done_callback(room.tasks.discard)
+    # start making the voice now, before the other phone asks for it
+    sound = room.sounds[m["n"]] = rooms.Sound()
+    room.tasks.add(task := asyncio.create_task(make_voice(sound, text, to, *voices_of(room, person))))
+    task.add_done_callback(room.tasks.discard)
     return m
+
+
+def voices_of(room: rooms.Room, person: str) -> tuple[str, str]:
+    """The voices to speak this person's translations in: their own (if recorded), then a standard one."""
+    return room.voices.get(person) or "", voice.standard_voice(room.people[person]["who"])
 
 
 # Echoes: a phone's microphone can hear a voice played a moment ago (the other phone in the same room,
@@ -602,19 +623,47 @@ def echo(room: rooms.Room, said: str) -> bool:
     return False
 
 
-async def make_voice(sound: rooms.Sound, text: str, lang: str, voice_id: str):
+async def make_voice(sound: rooms.Sound, text: str, lang: str, own: str, standard: str):
     """Fetch the voice piece by piece into `sound`, so the other phone can start playing at once."""
     try:
-        pieces = await run_in_threadpool(voice.speak_as, text, lang, voice_id)
+        pieces = await run_in_threadpool(start_voice, text, lang, own, standard)
+        sound.standard = pieces.standard
         while (piece := await run_in_threadpool(next, pieces, None)) is not None:
             sound.pieces.append(piece)
             sound.changed()
-    except voice.VoiceError as e:   # no pieces: the phone uses its standard voice
-        # Say why in the logs (31 Oct: one person's every sentence fell back, and nothing said why)
-        print(f"Own voice failed ({lang}), the standard voice is used: {e}")
+    except voice.VoiceError:   # no pieces: the phone uses its own voice (already in the logs)
+        pass
     finally:
         sound.done = True
         sound.changed()
+
+
+class Spoken:
+    """The pieces of a voice, and whether it is the standard one (the phone says so under the line)."""
+
+    def __init__(self, pieces, standard: bool):
+        self.pieces, self.standard = pieces, standard
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.pieces)
+
+
+def start_voice(text: str, lang: str, own: str, standard: str) -> Spoken:
+    """The person's own voice if they recorded one; otherwise, or if it fails, Mythree's standard voice."""
+    if own:
+        try:
+            return Spoken(voice.speak_as(text, lang, own), False)
+        except voice.VoiceError as e:
+            # Say why in the logs (31 Oct: one person's every sentence fell back, and nothing said why)
+            print(f"Own voice failed ({lang}), the standard voice is used: {e}")
+    try:
+        return Spoken(voice.speak_as(text, lang, standard), True)
+    except voice.VoiceError as e:
+        print(f"Standard voice failed ({lang}), the phone's own voice is used: {e}")
+        raise
 
 
 class Heard(BaseModel):
@@ -631,15 +680,14 @@ async def speak_in_call(code: str, heard: Heard, key: str = CallKey):
     sound = room.sounds.get(heard.n)
     if sound is None:   # no early voice (an older sentence, or after a restart): make it now
         try:
-            pieces = await run_in_threadpool(voice.speak_as, m["translation"], m["to"], room.voices.get(m["person"]))
-        except voice.VoiceError as e:
-            print(f"Own voice failed ({m['to']}), the standard voice is used: {e}")
-            raise HTTPException(503, "Own voice not available, using the standard voice")
-        return StreamingResponse(pieces, media_type="audio/mpeg")
+            pieces = await run_in_threadpool(start_voice, m["translation"], m["to"], *voices_of(room, m["person"]))
+        except voice.VoiceError:
+            raise HTTPException(503, "No voice available, using the phone's own voice")
+        return StreamingResponse(pieces, media_type="audio/mpeg", headers=voice_kind(pieces.standard))
     while not sound.pieces and not sound.done:   # usually already arriving: it started with the translation
         await sound.news.wait()
     if not sound.pieces:
-        raise HTTPException(503, "Own voice not available, using the standard voice")
+        raise HTTPException(503, "No voice available, using the phone's own voice")
 
     async def early_pieces():
         sent = 0
@@ -651,7 +699,11 @@ async def speak_in_call(code: str, heard: Heard, key: str = CallKey):
                 return
             else:
                 await sound.news.wait()
-    return StreamingResponse(early_pieces(), media_type="audio/mpeg")
+    return StreamingResponse(early_pieces(), media_type="audio/mpeg", headers=voice_kind(sound.standard))
+
+
+def voice_kind(standard: bool) -> dict:
+    return {"X-Mythree-Voice": "standard" if standard else "own"}
 
 
 # --- Each person's own voice, recorded in the app -----------------------------
@@ -868,7 +920,10 @@ async def hello_in_my_voice(voice_id: str, lang: str = "en"):
         raise HTTPException(400, "Unknown language")
     try:
         sound = await run_in_threadpool(voice.speak_as, HELLO[lang], lang, own_voice_id(voice_id))
-    except voice.VoiceError:
+    except voice.VoiceError as e:
+        print(f"Hear it failed: {e}")
+        if await voice_gone(voice_id):   # deleted since: the phone forgets it and asks to record again
+            raise HTTPException(410, "Your recorded voice is gone. Please record it again.")
         raise HTTPException(503, "Your voice isn't ready just now.")
     return StreamingResponse(sound, media_type="audio/mpeg")
 

@@ -5,7 +5,11 @@
 
 const PAUSE_MS = 1400;       // this much quiet ends a sentence
 const MIN_SPEECH_MS = 400;   // shorter sounds (a cough, a click) are ignored
-const MAX_SENTENCE_MS = 25000;
+// Long talking goes in pieces, so the other person hears it while it goes on (31 Oct, call to India:
+// sentences of 30+ words reached the other phone only after 15 s of talking). After 6 s a breath ends
+// the piece; after 10 s even a short dip between words; never more than 15 s.
+const BREATH = [[10000, 250], [6000, 700]];   // [talking this long, then this much quiet ends the piece]
+const MAX_SENTENCE_MS = 15000;
 const PRE_ROLL_MS = 300;     // keep a little sound from just before the voice started
 const TARGET_RATE = 16000;   // Meta wants 16 kHz
 const QUIET_STOP_MS = 3 * 60 * 1000;   // nobody spoke for 3 minutes: stop listening
@@ -44,7 +48,23 @@ const saved = (() => { try { return JSON.parse(localStorage.getItem(ME_KEY)) || 
 if (saved.relation) $("relation").value = saved.relation;
 if (saved.name) $("name").value = saved.name;
 if (saved.lang) $("lang").value = saved.lang;
-let myVoice = saved.voice || "";   // the ID of the voice I recorded (it stays on this phone)
+// The ID of the voice I recorded (it stays on this phone). It has one place of its own, read fresh every
+// time: an older tab must never put back a voice that "Record again" has deleted since (31 Oct: every
+// few calls one person was back to the standard voice, because an old tab wrote back a deleted voice).
+const VOICE_KEY = `${ME_KEY}-voice`;
+let voiceHere = saved.voice || "";   // only for a private window, where nothing can be remembered
+try { if (localStorage.getItem(VOICE_KEY) === null) localStorage.setItem(VOICE_KEY, voiceHere); } catch { /* private window */ }
+
+function myVoice() {
+  try { return localStorage.getItem(VOICE_KEY) ?? voiceHere; } catch { return voiceHere; }
+}
+
+function setVoice(id) {
+  voiceHere = id;
+  try { localStorage.setItem(VOICE_KEY, id); } catch { /* private window */ }
+  showVoice();
+}
+addEventListener("storage", (e) => e.key === VOICE_KEY && showVoice());   // recorded again in another tab
 if (saved.theirPhone) $("their-phone").value = saved.theirPhone;
 if (saved.theirEmail) $("their-email").value = saved.theirEmail;
 if (saved.theirRelation) $("their-relation").value = saved.theirRelation;
@@ -82,6 +102,17 @@ const ANSWER = {
         allow: "If your phone asks, tap \"Allow\"", listening: "Just talk, Mythree is listening",
         tap: "Tap the green button to talk" },
 };
+// Someone answering without a recorded voice is asked to record it first (Vijaya, 1 Nov: her friend in India
+// had no way to record, so her phone had no voice for his words). Answer still works without it: then
+// Mythree's standard voice speaks for them (a man's or a woman's, from the relation).
+const ANSWER_VOICE = {
+  te: { ask: "ముందు మీ గొంతు రికార్డ్ చేయండి (1 నిమిషం చదవండి). అప్పుడు వాళ్ళు మీ మాటలు మీ గొంతులోనే వింటారు. " +
+             "రికార్డ్ చేయకపోతే, మైత్రి గొంతు వినిపిస్తుంది.",
+        record: "🎙️ నా గొంతు రికార్డ్ చేయండి", ready: "✅ మీ గొంతు సిద్ధంగా ఉంది. ఇప్పుడు ఫోన్ ఎత్తండి." },
+  en: { ask: "First record your voice (read aloud for 1 minute), so they hear your words in your own voice. " +
+             "Without it, they hear a standard voice.",
+        record: "🎙️ Record my voice", ready: "✅ Your own voice is ready. Now tap Answer." },
+};
 let simple = null;   // the words for a grandparent's screen, in their language (null = the full app)
 
 function showAnswer(code, invite) {
@@ -92,17 +123,27 @@ function showAnswer(code, invite) {
   $("answer-word").textContent = words.answer;
   $("allow-hint").textContent = words.allow;
   $("answer-btn").hidden = false;
+  const voiceWords = ANSWER_VOICE[invite.lang] || ANSWER_VOICE.en;
+  const showAnswerVoice = () => {
+    $("answer-voice").hidden = false;
+    $("answer-voice-line").textContent = myVoice() ? voiceWords.ready : voiceWords.ask;
+    $("answer-record").hidden = !!myVoice();
+  };
+  $("answer-record").textContent = voiceWords.record;
+  $("answer-record").onclick = () => openRecorder(invite.lang, "answer", invite.who, showAnswerVoice);
+  if (!myVoice()) showAnswerVoice();
   $("answer-btn").onclick = async () => {
     unlockSound();
     // the voice this phone recorded before (if any), so the answering person speaks in their own voice too
-    const reply = await postJson(`/api/calls/${code}/join`, { answer: true, voice: myVoice });
+    const sent = myVoice();
+    const reply = await postJson(`/api/calls/${code}/join`, { answer: true, voice: sent });
     if (!reply.ok) return ($("answer-problem").textContent = await problemOf(reply));
     const joined = await reply.json();
     simple = words;
     document.body.classList.add("simple");
     $("answer").hidden = true;
     enter(code, joined.person, invite.lang);
-    if (joined.voice_gone) forgetVoice();
+    if (joined.voice_gone) forgetVoice(sent);
     showMic(false);   // her words under the mic, in her language
     start();   // the mic turns on by itself: there is nothing to press, just talk
   };
@@ -113,7 +154,7 @@ function me() {
   const theirPhone = $("their-phone").value.trim(), theirEmail = $("their-email").value.trim();
   const theirRelation = $("their-relation").value, theirLang = $("their-lang").value;
   try {
-    localStorage.setItem(ME_KEY, JSON.stringify({ relation, name, lang, voice: myVoice, theirPhone, theirEmail,
+    localStorage.setItem(ME_KEY, JSON.stringify({ relation, name, lang, theirPhone, theirEmail,   // (the voice has its own place)
                                                    theirRelation, theirLang }));
   } catch { /* private window */ }
   const role = RELATION_WORDS[relation] || "a family member";
@@ -122,7 +163,7 @@ function me() {
                                              : role.replace(/^(the|a) /, "your ").replace(/^./, (c) => c.toUpperCase()));
   const them = theirRelation && theirLang !== lang
     ? { who: RELATION_WORDS[theirRelation], lang: theirLang, caller } : null;
-  return { who: name ? `${name}, ${role}` : role, lang, voice: myVoice, them };
+  return { who: name ? `${name}, ${role}` : role, lang, voice: myVoice(), them };
 }
 
 // --- Starting or joining a call ----------------------------------------------
@@ -136,7 +177,7 @@ $("start-call").addEventListener("click", async () => {
   const { code, person, key, voice_gone } = await reply.json();
   callKey = key;
   enter(code, person, mine.lang);
-  if (voice_gone) { forgetVoice(); showMic(false, VOICE_GONE); }
+  if (voice_gone) { forgetVoice(mine.voice); showMic(false, VOICE_GONE); }
 });
 
 $("join-call").addEventListener("click", async () => {
@@ -153,18 +194,18 @@ $("join-call").addEventListener("click", async () => {
   if (!reply.ok) return ($("problem").textContent = await problemOf(reply));
   const { person, voice_gone } = await reply.json();
   enter(code, person, mine.lang);
-  if (voice_gone) { forgetVoice(); showMic(false, VOICE_GONE); }
+  if (voice_gone) { forgetVoice(mine.voice); showMic(false, VOICE_GONE); }
 });
 
 // The voice this phone remembered no longer exists at ElevenLabs (deleted since): forget it, so the
 // person can record it again, instead of quietly using the standard voice in every call.
 const VOICE_GONE = "Your recorded voice is gone, so a standard voice is used. After the call, record it again · " +
                    "మీ గొంతు రికార్డింగ్ పోయింది. కాల్ తర్వాత మళ్ళీ రికార్డ్ చేయండి";
+const VOICE_GONE_NOW = "Your recorded voice is gone. Please record it again · " +
+                       "మీ గొంతు రికార్డింగ్ పోయింది. దయచేసి మళ్ళీ రికార్డ్ చేయండి";
 
-function forgetVoice() {
-  myVoice = "";
-  me();   // saves this phone's choices, now without the voice
-  showVoice();
+function forgetVoice(gone) {
+  if (myVoice() === gone) setVoice("");   // (unless another tab has recorded a new one meanwhile)
 }
 
 function rememberedCall() {
@@ -220,7 +261,15 @@ function enter(code, person, lang, news) {
 }
 
 $("end").addEventListener("click", () => {
-  if (call) sendNote(call, { kind: "bye" });
+  if (call) {
+    sendNote(call, { kind: "bye" });
+    postJson(`/api/calls/${call.code}/leave`, { person: call.person }).catch(() => {});   // it ends for both phones
+  }
+  endCall();
+});
+
+// The call is over: I tapped End, or the other person did (Vijaya, 1 Nov: End ends it on both phones).
+function endCall(note) {
   forgetCall();
   if (ctx) stop();
   closeVideo();
@@ -234,21 +283,28 @@ $("end").addEventListener("click", () => {
   if (simple) {   // a grandparent's phone: just say the call has ended
     $("answer").hidden = false;
     $("caller-line").textContent = simple.ended;
-    $("answer-btn").hidden = true;
+    $("answer-btn").hidden = $("answer-voice").hidden = true;
     $("allow-hint").textContent = "";
     return;
   }
   $("setup").hidden = false;
+  $("problem").textContent = note || "";
   history.replaceState(null, "", DEMO ? `/phone?demo=${DEMO}` : "/phone");
-});
+}
 
 const them = () => call && call.people[call.person === "a" ? "b" : "a"];
 
 function showStatus(note) {
   const box = $("status");
   const other = !note && them();
-  box.classList.toggle("talking", !!other);   // a small line (on the video, when it's on)
+  const gone = other && call.away?.includes(call.person === "a" ? "b" : "a");
+  box.classList.toggle("talking", !!other && !gone);   // a small line (on the video, when it's on)
   if (note) { box.textContent = note; return; }
+  if (gone) {
+    box.textContent = `${other.who.replace(/^./, (c) => c.toUpperCase())} left the call. They can tap the link again to come back · ` +
+                      "వాళ్ళు కాల్ నుంచి వెళ్ళిపోయారు. లింక్ మళ్ళీ నొక్కితే తిరిగి వస్తారు";
+    return;
+  }
   if (other) {
     box.textContent = `Talking with ${other.who} · మాట్లాడుతున్నారు`;
     return;
@@ -340,7 +396,7 @@ async function follow(mine) {
       const known = Object.keys(mine.people).length;
       const reply = await api(`/api/calls/${mine.code}?after=${mine.after}&known=${known}` +
                               `&person=${mine.person}&notes=${mine.notes}`);
-      if (reply.status === 404) { forgetCall(); showStatus("This call has ended · కాల్ ముగిసింది"); return; }
+      if (reply.status === 404) return endCall("This call has ended · కాల్ ముగిసింది");
       if (!reply.ok) throw new Error(String(reply.status));
       news = await reply.json();
     } catch {
@@ -348,9 +404,15 @@ async function follow(mine) {
       continue;
     }
     if (call !== mine) return;
-    const joined = !them() && news.people[mine.person === "a" ? "b" : "a"];
+    if (news.ended) {   // the other person tapped End
+      const who = (them()?.who || "the other person").replace(/^./, (c) => c.toUpperCase());
+      return endCall(`${who} ended the call · కాల్ ముగిసింది`);
+    }
+    // Someone joined, left, or came back (31 Oct: a person who left still looked "in the call")
+    const before = JSON.stringify([them(), mine.away]);
     mine.people = news.people;
-    if (joined) showStatus();
+    mine.away = news.away || [];
+    if (JSON.stringify([them(), mine.away]) !== before) showStatus();
     if (news.notes?.length) mine.notes = news.notes.at(-1).n;   // (after a restart the numbers start again)
     for (const n of news.notes || []) onNote(n, mine);
     for (const m of news.messages) {
@@ -497,7 +559,8 @@ function listen(chunk) {
   live?.hear(chunk);
   speechMs += ms;
   quietMs = level > start * 0.5 ? 0 : quietMs + ms;
-  if (quietMs >= PAUSE_MS || speechMs >= MAX_SENTENCE_MS) {
+  const pause = BREATH.find(([talked]) => speechMs >= talked)?.[1] ?? PAUSE_MS;
+  if (quietMs >= pause || speechMs >= MAX_SENTENCE_MS) {
     const sentence = chunks, long = speechMs - quietMs, line = live;
     live = null;   // this sentence keeps its live line; reset() must not close it
     reset();
@@ -610,7 +673,8 @@ function say(line, text, lang, n) {
 async function sayNow(line, text, lang, n, mine) {   // in the voice of the person who said it
   if (call !== mine) return;
   const voiced = postJson(`/api/calls/${mine.code}/speak`, { n }).then(async (reply) => {
-    if (!reply.ok) throw new Error("no own voice");
+    if (!reply.ok) throw new Error("no voice");
+    if (reply.headers.get("X-Mythree-Voice") === "standard") line.querySelector("small")?.append(" · standard voice");
     return URL.createObjectURL(await reply.blob());
   });
   voiced.catch(() => {});   // handled below, after the wait
@@ -623,9 +687,10 @@ async function sayNow(line, text, lang, n, mine) {   // in the voice of the pers
     addReplay(line, () => play(sound));
     await play(sound);
   } catch {
-    line.querySelector("small")?.append(" · standard voice");
+    const small = line.querySelector("small");
+    small?.append(" · standard voice");
     addReplay(line, () => standardVoice(text, lang));
-    await standardVoice(text, lang);
+    if (!(await standardVoice(text, lang))) small?.append(" · this phone has no voice for it · ఈ ఫోన్‌లో గొంతు లేదు");
   } finally {
     muted = false;
     dip(false);
@@ -674,12 +739,24 @@ function play(src) {
   });
 }
 
-function standardVoice(text, lang) {
-  return new Promise((done) => {
-    if (!window.speechSynthesis) return done();
+// The phone's own voice must never hold up the call (31 Oct, call 5258 to India: a phone with no
+// Telugu voice never said "done", so no later sentence was spoken, and the mic stayed deaf, waiting).
+const START_WAIT_MS = 3000;   // not started by then: this phone can't say it
+
+function standardVoice(text, lang) {   // true if it was said, false if this phone couldn't
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis) return resolve(false);
+    const voices = speechSynthesis.getVoices();   // (empty while the phone is still loading them: then just try)
+    if (voices.length && !voices.some((v) => v.lang.toLowerCase().startsWith(lang))) return resolve(false);
     const words = new SpeechSynthesisUtterance(text);
+    let timer;
+    const done = (said) => { clearTimeout(timer); words.onstart = words.onend = words.onerror = null; resolve(said); };
+    const giveUp = () => { speechSynthesis.cancel(); done(false); };
     words.lang = lang === "te" ? "te-IN" : "en-US";
-    words.onend = words.onerror = done;
+    words.onstart = () => { clearTimeout(timer); timer = setTimeout(giveUp, 3000 + text.length * 150); };   // about its length
+    words.onend = () => done(true);
+    words.onerror = () => done(false);
+    timer = setTimeout(giveUp, START_WAIT_MS);
     speechSynthesis.speak(words);
   });
 }
@@ -915,9 +992,25 @@ $("flip").addEventListener("click", async () => {   // front camera ↔ back cam
   const old = media.getVideoTracks()[0];
   const want = facing === "user" ? "environment" : "user";
   old.stop();   // some phones open only one camera at a time
-  const camera = (f) => navigator.mediaDevices.getUserMedia({ video: CAMERA(f) }).then((s) => s.getVideoTracks()[0], () => null);
+  // Exactly that camera first: asked only as a wish, some phones gave the back camera again for the
+  // front one, and 🔄 stayed stuck on the back (31 Oct, call to India). Then as a wish, for phones
+  // that refuse "exactly".
+  const open = (video) => navigator.mediaDevices.getUserMedia({ video }).then((s) => s.getVideoTracks()[0], () => null);
+  const named = async (f) => {   // last try: the camera whose name says front or back
+    const words = f === "user" ? /front|user/i : /back|rear|environment/i;
+    const all = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+    const device = all.find((d) => d.kind === "videoinput" && words.test(d.label));
+    return device ? open({ ...CAMERA(f), facingMode: undefined, deviceId: { exact: device.deviceId } }) : null;
+  };
+  const camera = async (f) => {
+    const track = await open({ ...CAMERA(f), facingMode: { exact: f } }) || await open(CAMERA(f));
+    const got = track?.getSettings?.().facingMode;
+    if (!got || got === f) return track;
+    track.stop();   // asked for one camera, given the other
+    return await named(f) || open(CAMERA(f));
+  };
   let fresh = await camera(want);
-  if (fresh) facing = want;
+  if (fresh) facing = fresh.getSettings?.().facingMode || want;   // the camera the phone really gave
   else fresh = await camera(facing);   // only one camera: keep the one we had
   if (!fresh) return;
   media.removeTrack(old);
@@ -945,33 +1038,40 @@ const READ_THIS = {
 const MIN_RECORD_S = 20, MAX_RECORD_S = 90;
 
 function showVoice() {
-  $("voice-state").textContent = myVoice
+  const voice = myVoice();
+  $("voice-state").textContent = voice
     ? "✅ Your own voice is ready · మీ గొంతు సిద్ధంగా ఉంది"
     : "Your own voice isn't recorded yet. Until then, Mythree uses a standard voice. · మీ గొంతు ఇంకా రికార్డ్ చేయలేదు.";
-  $("record-open").textContent = myVoice ? "Record again · మళ్ళీ రికార్డ్ చేయండి" : "Record my voice · నా గొంతు రికార్డ్ చేయండి";
-  $("voice-hello").hidden = $("voice-delete").hidden = !myVoice;
+  $("record-open").textContent = voice ? "Record again · మళ్ళీ రికార్డ్ చేయండి" : "Record my voice · నా గొంతు రికార్డ్ చేయండి";
+  $("voice-hello").hidden = $("voice-delete").hidden = !voice;
 }
 showVoice();
 
-function saveVoice(id) {
-  myVoice = id;
-  me();   // remember it on this phone
-  showVoice();
+// The recorder opens from the start page, or from the Answer screen, and goes back where it came from.
+let recordFor = { lang: "en", back: "setup", name: "", done: null };
+
+function openRecorder(lang, back, name, done) {
+  unlockSound();
+  recordFor = { lang, back, name, done };
+  $("read-this").lang = lang;
+  $("read-this").textContent = READ_THIS[lang];
+  $("rec-problem").textContent = "";
+  $(back).hidden = true;
+  $("recorder").hidden = false;
 }
 
-$("record-open").addEventListener("click", () => {
-  unlockSound();
-  $("read-this").lang = $("lang").value;
-  $("read-this").textContent = READ_THIS[$("lang").value];
-  $("rec-problem").textContent = "";
-  $("setup").hidden = true;
-  $("recorder").hidden = false;
-});
+$("record-open").addEventListener("click", () => openRecorder($("lang").value, "setup",
+  $("name").value.trim() || ($("relation").selectedOptions[0]?.text.split(" · ")[0] ?? "")));
+
+function closeRecorder() {
+  $("recorder").hidden = true;
+  $(recordFor.back).hidden = false;
+  recordFor.done?.();
+}
 
 $("rec-cancel").addEventListener("click", () => {
   if (recording) finishRecording(false);
-  $("recorder").hidden = true;
-  $("setup").hidden = false;
+  closeRecorder();
 });
 
 let recording = null;   // { ctx, stream, node, chunks, began, timer }
@@ -1024,32 +1124,34 @@ async function finishRecording(keep) {
   $("rec-problem").textContent = "Mythree is learning your voice… · మైత్రి మీ గొంతు నేర్చుకుంటోంది…";
   const form = new FormData();
   form.append("audio", toWav(r.chunks, rate), "voice.wav");
-  form.append("name", $("name").value.trim() || ($("relation").selectedOptions[0]?.text.split(" · ")[0] ?? ""));
+  form.append("name", recordFor.name);
   form.append("consent", "true");
   try {
     const reply = await api("/api/voices", { method: "POST", body: form });
     if (!reply.ok) throw new Error(await problemOf(reply));
-    const old = myVoice;
-    saveVoice((await reply.json()).voice);
+    const old = myVoice();
+    setVoice((await reply.json()).voice);
     if (old) api(`/api/voices/${old}`, { method: "DELETE" });   // the new recording replaces the old one
-    $("recorder").hidden = true;
-    $("setup").hidden = false;
-    hearMyVoice();
+    closeRecorder();
+    hearMyVoice(recordFor.lang);
   } catch (e) {
     $("rec-problem").textContent = e.message || "Please try again · మళ్ళీ ప్రయత్నించండి";
   }
 }
 
-async function hearMyVoice() {
-  const reply = await api(`/api/voices/${myVoice}/hello?lang=${$("lang").value}`, { method: "POST" });
-  if (reply.ok) play(URL.createObjectURL(await reply.blob()));
+async function hearMyVoice(lang = $("lang").value) {
+  const voice = myVoice();
+  const reply = await api(`/api/voices/${voice}/hello?lang=${lang}`, { method: "POST" });
+  if (reply.ok) return play(URL.createObjectURL(await reply.blob()));
+  if (reply.status === 410) { forgetVoice(voice); $("problem").textContent = VOICE_GONE_NOW; }   // deleted since
+  else $("problem").textContent = await problemOf(reply);
 }
 $("voice-hello").addEventListener("click", () => { unlockSound(); hearMyVoice(); });
 
 $("voice-delete").addEventListener("click", async () => {
   if (!confirm("Delete your voice from Mythree? · మీ గొంతును తొలగించాలా?")) return;
-  const reply = await api(`/api/voices/${myVoice}`, { method: "DELETE" });
-  if (reply.ok) saveVoice("");
+  const reply = await api(`/api/voices/${myVoice()}`, { method: "DELETE" });
+  if (reply.ok) setVoice("");
   else $("problem").textContent = await problemOf(reply);
 });
 
