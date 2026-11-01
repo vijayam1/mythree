@@ -19,7 +19,8 @@
     main { max-width: 480px; min-height: 100dvh; margin: 0 auto; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
     button, input, select { font: inherit; }
     h1 .logo { height: 1.5em; width: auto; vertical-align: -0.35em; margin-right: 6px; }
-    h1 { font-size: 30px; margin: 0; line-height: 1; }
+    h1 { font-size: 30px; margin: 0; line-height: 1; white-space: nowrap; }   /* the bird and the name always on one line */
+    main:has(#call:not([hidden])) h1 { font-size: 22px; }   /* in a call the screen is for the faces and the words */
     .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .card { background: var(--card); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
     label { font-size: 16px; font-weight: 600; color: var(--ink); display: flex; flex-direction: column; gap: 6px; }
@@ -65,10 +66,10 @@
     .answer-btn:active { transform: translateY(8px); box-shadow: inset 0 3px 0 rgba(255,255,255,.25), 0 2px 0 var(--leaf-dark); }
     @keyframes ring { 50% { transform: scale(1.05); } }
     .allow-hint { margin: 0; font-size: 18px; line-height: 1.5; color: var(--soft); }
-    /* A grandparent's call screen: bigger words, a big red End button, nothing else to learn */
+    /* A grandparent's call screen: bigger words, a bigger End button, nothing else to learn */
     body.simple #talk li.theirs { font-size: 26px; }
-    body.simple #end { font-size: 20px; padding: 12px 18px; background: linear-gradient(#f07a6e, var(--stop) 55%, #b73a2e);
-                       box-shadow: inset 0 2px 0 rgba(255,255,255,.3), 0 4px 0 var(--stop-dark), 0 6px 10px rgba(0,0,0,.2); }
+    body.simple #camera, body.simple #mic, body.simple #end { width: 80px; height: 80px; }   /* all three a little bigger, still one size */
+    body.simple #end small, body.simple .camera small { font-size: 12px; }
     body.simple #mic-label { font-size: 20px; color: var(--ink); }
     .calling { border: 2px dashed #cbe0c1; border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
     .calling p { margin: 0; color: var(--soft); font-size: 15px; line-height: 1.4; }
@@ -93,10 +94,16 @@
     /* During a call the screen fits the phone: the conversation scrolls inside its own area,
        and the mic button always stays at the bottom. */
     main:has(#call:not([hidden])) { height: 100dvh; min-height: 0; }
-    #call { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+    #call { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
     #talk { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
     #status { flex: none; max-height: 45dvh; overflow-y: auto; }
     .status { background: var(--leaf-soft); border-radius: 14px; padding: 10px 14px; text-align: center; }
+    /* "Talking with …" is only a small line (31 Oct: the big box took a fifth of the screen), and on the video
+       it sits on the picture, between the 🔄 button and my own face. */
+    #status.talking { padding: 4px 12px; font-size: 15px; line-height: 1.35; overflow: hidden; }
+    #call:has(#video:not([hidden])) .status.talking { position: absolute; z-index: 2; top: 10px; left: 72px;
+      right: calc(min(28%, 130px) + 20px); max-height: none; overflow: visible; text-align: left; font-size: 13px;
+      color: #fff; background: rgba(0,0,0,.45); border-radius: 12px; text-shadow: 0 1px 2px #000; }
     .status strong { font-size: 26px; letter-spacing: 4px; }
     #talk { flex: 1; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
     #talk li { max-width: 88%; padding: 10px 14px; border-radius: 16px; line-height: 1.4; }
@@ -111,45 +118,63 @@
                     font-size: 22px; background: linear-gradient(#ffffff, var(--leaf-soft));
                     box-shadow: inset 0 1px 0 #fff, 0 4px 0 var(--leaf-dark), 0 6px 8px rgba(0,0,0,.2); }
     #talk .replay:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--leaf-dark); }
-    .controls { flex: none; display: flex; justify-content: center; align-items: center; gap: 22px; }
-    .camera { width: 76px; height: 76px; border-radius: 50%; border: 0; cursor: pointer; display: flex; flex-direction: column;
+    /* The three call buttons (📹, mic, End) are one size, side by side on one line (her choice, 31 Oct) */
+    .controls { flex: none; display: flex; justify-content: center; align-items: center; gap: 28px; }
+    .camera { width: 64px; height: 64px; border-radius: 50%; border: 0; cursor: pointer; display: flex; flex-direction: column;
               align-items: center; justify-content: center; gap: 2px; background: linear-gradient(#ffffff, #e9eef0); color: var(--ink);
               box-shadow: inset 0 1px 0 #fff, 0 5px 0 #b9c2c6, 0 7px 10px rgba(0,0,0,.18); }
-    .camera span { font-size: 28px; line-height: 1; }
+    .camera span { font-size: 24px; line-height: 1; }
     .camera small { font-size: 10px; line-height: 1.1; text-align: center; padding: 0 4px; }
     .camera:active { transform: translateY(4px); box-shadow: 0 1px 0 #b9c2c6; }
     .camera.on { background: linear-gradient(#3b4560, #1c2333); color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 5px 0 #0d111a, 0 7px 10px rgba(0,0,0,.25); }
-    #mic { align-self: center; width: 96px; height: 96px; border-radius: 50%; border: 0; font-size: 40px; color: #fff; cursor: pointer;
+    #mic { align-self: center; width: 64px; height: 64px; border-radius: 50%; border: 0; font-size: 28px; color: #fff; cursor: pointer;
            background: radial-gradient(circle at 50% 30%, #4fd59c, var(--leaf) 60%, #168257); transition: transform .06s, box-shadow .06s;
-           box-shadow: inset 0 3px 0 rgba(255,255,255,.35), 0 8px 0 var(--leaf-dark), 0 12px 18px rgba(0,0,0,.25); }
-    #mic:active { transform: translateY(6px); box-shadow: inset 0 3px 0 rgba(255,255,255,.25), 0 2px 0 var(--leaf-dark), 0 3px 5px rgba(0,0,0,.2); }
+           box-shadow: inset 0 2px 0 rgba(255,255,255,.35), 0 5px 0 var(--leaf-dark), 0 7px 10px rgba(0,0,0,.22); }
+    #mic:active { transform: translateY(4px); box-shadow: inset 0 2px 0 rgba(255,255,255,.25), 0 1px 0 var(--leaf-dark), 0 2px 4px rgba(0,0,0,.2); }
     #mic.on { background: radial-gradient(circle at 50% 30%, #f07a6e, var(--stop) 60%, #b73a2e);
-              box-shadow: inset 0 3px 0 rgba(255,255,255,.3), 0 8px 0 var(--stop-dark), 0 12px 18px rgba(0,0,0,.25); }
+              box-shadow: inset 0 2px 0 rgba(255,255,255,.3), 0 5px 0 var(--stop-dark), 0 7px 10px rgba(0,0,0,.22); }
     #mic-label { text-align: center; margin: -4px 0 0; color: var(--soft); }
+    /* End call: a round red button beside 📹 and the mic (31 Oct: the big one at the top took too much room) */
+    #end { width: 64px; height: 64px; border-radius: 50%; border: 0; cursor: pointer; display: flex; flex-direction: column;
+           align-items: center; justify-content: center; gap: 1px; color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.25);
+           background: radial-gradient(circle at 50% 30%, #f07a6e, var(--stop) 60%, #b73a2e);
+           box-shadow: inset 0 2px 0 rgba(255,255,255,.3), 0 5px 0 var(--stop-dark), 0 7px 10px rgba(0,0,0,.22); }
+    #end span { font-size: 24px; line-height: 1; transform: rotate(135deg); }   /* the receiver put down */
+    #end small { font-size: 10px; line-height: 1.1; text-align: center; font-weight: 700; }
+    #end:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--stop-dark); }
 
-    /* Seeing each other: the other person's picture, the translation in big letters on it. The picture takes about
-       a third of the screen and shrinks first on a short phone: the conversation below always keeps room to scroll. */
+    /* Seeing each other: the other person's picture, the translation on it. The picture takes about half the
+       screen and shrinks first on a short phone: the conversation below always keeps room to scroll.
+       With the video off, the conversation has all the room. */
     #call:has(#video:not([hidden])) #talk { min-height: 20dvh; }
-    #call:has(#video:not([hidden])) #mic { width: 80px; height: 80px; font-size: 34px; }
-    .video { position: relative; flex: 0 1 38dvh; min-height: 150px; border-radius: 18px; overflow: hidden; background: #1c2333; }
+    .video { position: relative; flex: 0 1 52dvh; min-height: 150px; border-radius: 18px; overflow: hidden; background: #1c2333; }
     #their-video { width: 100%; height: 100%; object-fit: cover; display: block; }
     #my-video { position: absolute; top: 10px; right: 10px; width: 28%; max-width: 130px; max-height: calc(100% - 20px); aspect-ratio: 3 / 4; object-fit: cover;
                 border-radius: 12px; border: 2px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,.3); background: #2c3550; }
     .mirror { transform: scaleX(-1); }
-    .video-note { position: absolute; top: 42%; left: 0; right: 0; margin: 0; padding: 0 16px; text-align: center; color: #fff; font-size: 18px; line-height: 1.4; }
+    /* ⇄ (or a tap on the small picture): my face big and theirs small, and back, like WhatsApp */
+    .video.swapped #my-video { inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; aspect-ratio: auto;
+                               border: 0; border-radius: 0; box-shadow: none; }
+    .video.swapped #their-video { position: absolute; z-index: 1; top: 10px; right: 10px; width: 28%; max-width: 130px; height: auto;
+                                  max-height: calc(100% - 20px); aspect-ratio: 3 / 4; border-radius: 12px; border: 2px solid #fff;
+                                  box-shadow: 0 4px 10px rgba(0,0,0,.3); background: #2c3550; }
+    #my-video, .video.swapped #their-video { cursor: pointer; }
+    /* (kept clear of my own small picture on the right: 31 Oct the words ran under it) */
+    .video-note { position: absolute; top: 42%; left: 0; right: calc(min(28%, 130px) + 10px); margin: 0; padding: 0 12px; text-align: center;
+                  color: #fff; font-size: 17px; line-height: 1.4; }
     .caption { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 30px 16px 12px; text-align: center; color: #fff;
-               font-size: 24px; font-weight: 700; line-height: 1.3; text-shadow: 0 1px 3px #000; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
+               font-size: 19px; font-weight: 700; line-height: 1.3; text-shadow: 0 1px 3px #000; background: linear-gradient(transparent, rgba(0,0,0,.75)); }
     .caption:empty { display: none; }
-    body.simple .caption { font-size: 28px; }
+    body.simple .caption { font-size: 23px; }   /* (31 Oct: at 24/28 px a long sentence covered the whole face) */
     .flip { position: absolute; top: 10px; left: 10px; width: 52px; height: 52px; border-radius: 50%; border: 0; font-size: 26px; cursor: pointer;
             background: rgba(255,255,255,.88); box-shadow: 0 3px 8px rgba(0,0,0,.3); }
+    .swap { top: 72px; font-size: 24px; font-weight: 700; color: var(--ink); }
   </style>
 </head>
 <body>
 <main>
   <div class="bar">
     <h1><img class="logo" src="/static/mythree-logo.svg" alt="">Mythree</h1>
-    <button id="end" class="plain" hidden>End call · ముగించు</button>
   </div>
 
   <!-- 1. Who am I? Then start a call, or join one with its code. -->
@@ -265,11 +290,13 @@
       <p id="video-note" class="video-note"></p>
       <p id="caption" class="caption"></p>
       <button id="flip" class="flip" aria-label="Turn the camera around · కెమెరా తిప్పండి">🔄</button>
+      <button id="swap" class="flip swap" aria-label="Big and small pictures switch places · పెద్ద, చిన్న వీడియో మార్చండి">⇄</button>
     </div>
     <ul id="talk" aria-live="polite"></ul>
     <div class="controls">
       <button id="camera" class="camera" aria-label="Video on or off · వీడియో"><span>📹</span><small id="camera-word">Video · వీడియో</small></button>
       <button id="mic" aria-label="Start talking">🎙️</button>
+      <button id="end" aria-label="End call · ముగించు" hidden><span aria-hidden="true">📞</span><small>End · ముగించు</small></button>
     </div>
     <p id="mic-label">Green: tap to talk · గ్రీన్ బటన్ నొక్కి మాట్లాడండి</p>
   </section>

@@ -163,9 +163,10 @@ def _stream(name: str, method: str, url: str, **request) -> Iterator[bytes]:
         client.close()
         raise VoiceError(f"Could not reach {name}: {e.__class__.__name__}") from e
     if reply.status_code != 200:
+        why = _why(reply)
         reply.close()
         client.close()
-        raise VoiceError(f"{name} replied {reply.status_code}")
+        raise VoiceError(f"{name} replied {reply.status_code}{why}")
 
     def pieces():
         try:
@@ -174,3 +175,14 @@ def _stream(name: str, method: str, url: str, **request) -> Iterator[bytes]:
             reply.close()
             client.close()
     return pieces()
+
+
+def _why(reply: httpx.Response) -> str:
+    """The service's short reason for saying no, like " (quota_exceeded)": its code word only,
+    never its message, which can contain the voice's ID."""
+    try:
+        detail = reply.read() and reply.json().get("detail")
+    except Exception:
+        return ""
+    status = detail.get("status") if isinstance(detail, dict) else None
+    return f" ({status})" if isinstance(status, str) and status.replace("_", "").isalnum() else ""

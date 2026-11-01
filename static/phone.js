@@ -246,8 +246,9 @@ const them = () => call && call.people[call.person === "a" ? "b" : "a"];
 
 function showStatus(note) {
   const box = $("status");
+  const other = !note && them();
+  box.classList.toggle("talking", !!other);   // a small line (on the video, when it's on)
   if (note) { box.textContent = note; return; }
-  const other = them();
   if (other) {
     box.textContent = `Talking with ${other.who} · మాట్లాడుతున్నారు`;
     return;
@@ -441,6 +442,13 @@ async function start() {
 }
 
 function stop(why) {
+  // Stopped in the middle of a sentence: keep what was said so far, as if they had paused
+  // (31 Oct: tapping red while still talking threw the whole sentence away).
+  if (speaking && speechMs >= MIN_SPEECH_MS) {
+    const sentence = chunks, line = live;
+    live = null;   // reset() must not close its live line
+    send(sentence, ctx.sampleRate, line);
+  }
   node.disconnect();
   closeMic();   // the camera, if it's on, goes on: only the listening stops
   ctx.close();
@@ -738,7 +746,7 @@ function cameraOff() {
 
 function showCamera(on) {
   $("camera").classList.toggle("on", on);
-  $("camera-word").textContent = on ? "Stop video · ఆపు" : "Video · వీడియో";
+  $("camera-word").textContent = on ? "Stop · ఆపు" : "Video · వీడియో";   // short: the button is small
 }
 
 function closeMedia() {
@@ -891,9 +899,16 @@ function closeVideo() {
   $("their-video").srcObject = $("my-video").srcObject = null;
   $("caption").textContent = "";
   $("video").hidden = true;
+  $("video").classList.remove("swapped");   // the next video starts with their face big again
   if (call) call.video = false;
   routes = null;
 }
+
+// ⇄, or a tap on the small picture: my face big and theirs small, and back
+const swap = () => $("video").classList.toggle("swapped");
+$("swap").addEventListener("click", swap);
+$("my-video").addEventListener("click", () => $("video").classList.contains("swapped") || swap());
+$("their-video").addEventListener("click", () => $("video").classList.contains("swapped") && swap());
 
 $("flip").addEventListener("click", async () => {   // front camera ↔ back camera
   if (!hasVideo()) return;

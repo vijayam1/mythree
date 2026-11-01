@@ -76,3 +76,11 @@ def test_english_asks_for_a_steady_american_accent_and_telugu_stays_as_it_was(mo
     voice.speak_as("నమస్తే బాబు", "te", "myVoice1")
     assert sent[0]["text"] == "[American accent] Hello Babu" and sent[0]["voice_settings"]["stability"] == 0.75
     assert sent[1] == {"text": "నమస్తే బాబు", "model_id": voice.ELEVENLABS_MODEL, "language_code": "te"}
+
+
+def test_a_refusal_says_why_but_never_the_voice_id():
+    import httpx
+    said_no = httpx.Response(401, json={"detail": {"status": "quota_exceeded", "message": "Voice myVoice1 has no credits"}})
+    assert voice._why(said_no) == " (quota_exceeded)"
+    assert voice._why(httpx.Response(500, text="<html>oops</html>")) == ""
+    assert voice._why(httpx.Response(422, json={"detail": [{"msg": "bad"}]})) == ""

@@ -609,8 +609,9 @@ async def make_voice(sound: rooms.Sound, text: str, lang: str, voice_id: str):
         while (piece := await run_in_threadpool(next, pieces, None)) is not None:
             sound.pieces.append(piece)
             sound.changed()
-    except voice.VoiceError:
-        pass   # no pieces: the phone uses its standard voice
+    except voice.VoiceError as e:   # no pieces: the phone uses its standard voice
+        # Say why in the logs (31 Oct: one person's every sentence fell back, and nothing said why)
+        print(f"Own voice failed ({lang}), the standard voice is used: {e}")
     finally:
         sound.done = True
         sound.changed()
@@ -631,7 +632,8 @@ async def speak_in_call(code: str, heard: Heard, key: str = CallKey):
     if sound is None:   # no early voice (an older sentence, or after a restart): make it now
         try:
             pieces = await run_in_threadpool(voice.speak_as, m["translation"], m["to"], room.voices.get(m["person"]))
-        except voice.VoiceError:
+        except voice.VoiceError as e:
+            print(f"Own voice failed ({m['to']}), the standard voice is used: {e}")
             raise HTTPException(503, "Own voice not available, using the standard voice")
         return StreamingResponse(pieces, media_type="audio/mpeg")
     while not sound.pieces and not sound.done:   # usually already arriving: it started with the translation
