@@ -4,7 +4,7 @@
 
 A grandfather in India who speaks only Telugu calls his grandson in the US, who speaks only English. Mythree runs on the grandson's laptop next to the call, listens, and speaks each person's words in the other's language, with the respect a grandfather deserves. When the grandfather holds a letter up to the camera, Mythree reads it and explains it in Telugu.
 
-Built by team **Mythreyi** for the Meta Global AI Developer Hackathon (26 Oct – 4 Nov 2026).
+Built by **Vijaya Meda** for the Meta Global AI Developer Hackathon (26 Oct – 4 Nov 2026).
 
 ## Built during the hackathon
 
