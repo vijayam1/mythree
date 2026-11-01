@@ -3,13 +3,15 @@
 // translated, and speaks what the other person said, in that person's own voice.
 // The laptop page (index.html, ears.js) is separate and unchanged.
 
-const PAUSE_MS = 1400;       // this much quiet ends a sentence
+const PAUSE_MS = 900;        // this much quiet ends a sentence (was 1.4 s: 1 Nov, the lag on video)
 const MIN_SPEECH_MS = 400;   // shorter sounds (a cough, a click) are ignored
 // Long talking goes in pieces, so the other person hears it while it goes on (31 Oct, call to India:
-// sentences of 30+ words reached the other phone only after 15 s of talking). After 6 s a breath ends
-// the piece; after 10 s even a short dip between words; never more than 15 s.
-const BREATH = [[10000, 250], [6000, 700]];   // [talking this long, then this much quiet ends the piece]
-const MAX_SENTENCE_MS = 15000;
+// sentences of 30+ words reached the other phone only after 15 s of talking). After 4 s a breath ends
+// the piece; after 7 s even a short dip between words; never more than 10 s. (Not smaller: Telugu
+// puts the verb last, and a piece without its verb translates badly.)
+const BREATH = [[7000, 250], [4000, 700]];   // [talking this long, then this much quiet ends the piece]
+const MAX_SENTENCE_MS = 10000;
+const CATCH_UP = 1.2;        // voices waiting their turn play a little faster, so the call catches up
 const PRE_ROLL_MS = 300;     // keep a little sound from just before the voice started
 const TARGET_RATE = 16000;   // Meta wants 16 kHz
 const QUIET_STOP_MS = 3 * 60 * 1000;   // nobody spoke for 3 minutes: stop listening
@@ -425,6 +427,39 @@ async function follow(mine) {
       metaAtWork(line, m.meta);
       say(line, m.translation, m.to, m.n);
     }
+    showTalking(mine, news.talking);
+  }
+}
+
+// "… is speaking", then "Meta is translating": the other person's words are on their way (1 Nov: on video,
+// the wait for a translation felt like a broken call). A line at the bottom, and on the picture.
+const TALKING = {
+  speaking: (who) => `🗣️ ${who.replace(/^./, (c) => c.toUpperCase())} is speaking… · మాట్లాడుతున్నారు…`,
+  translating: () => "🧠 Meta is translating… · అనువదిస్తోంది…",
+};
+let signOnPicture = false;
+
+function showTalking(mine, talking) {
+  const what = talking?.[mine.person === "a" ? "b" : "a"];
+  let sign = $("their-state");
+  if (!TALKING[what]) {
+    sign?.remove();
+    if (signOnPicture) $("caption").textContent = "";
+    signOnPicture = false;
+    return;
+  }
+  const words = TALKING[what](them()?.who || "the other person");
+  if (!sign) {
+    sign = document.createElement("li");
+    sign.id = "their-state";
+    sign.className = "their-state";
+  }
+  sign.textContent = words;
+  $("talk").append(sign);   // always the last line
+  $("talk").scrollTop = $("talk").scrollHeight;
+  if (signOnPicture || !$("caption").textContent) {   // never over a translation still being read
+    $("caption").textContent = words;
+    signOnPicture = true;
   }
 }
 
@@ -661,12 +696,16 @@ function hush() {
   voice.pause();
   window.speechSynthesis?.cancel();
   queue = Promise.resolve();
+  waiting = 0;
   muted = false;
 }
 
+let waiting = 0;   // voices waiting their turn behind the one playing
+
 function say(line, text, lang, n) {
   const mine = call;
-  queue = queue.then(() => sayNow(line, text, lang, n, mine));
+  waiting++;
+  queue = queue.then(() => { waiting = Math.max(0, waiting - 1); return sayNow(line, text, lang, n, mine); });
   return queue;
 }
 
@@ -685,7 +724,7 @@ async function sayNow(line, text, lang, n, mine) {   // in the voice of the pers
   try {
     const sound = await voiced;
     addReplay(line, () => play(sound));
-    await play(sound);
+    await play(sound, waiting ? CATCH_UP : 1);   // more are waiting: a little faster, to catch up
   } catch {
     const small = line.querySelector("small");
     small?.append(" · standard voice");
@@ -724,7 +763,7 @@ function addReplay(line, again) {
   line.prepend(button);
 }
 
-function play(src) {
+function play(src, speed = 1) {
   return new Promise((resolve) => {
     let last = -1, still = 0;
     const guard = setInterval(() => {   // never wait forever if the sound gets stuck
@@ -734,6 +773,7 @@ function play(src) {
     }, 1000);
     const done = () => { clearInterval(guard); voice.onended = voice.onerror = voice.onpause = null; resolve(); };
     voice.src = src;
+    voice.defaultPlaybackRate = voice.playbackRate = speed;   // (the pitch stays the same)
     voice.onended = voice.onerror = voice.onpause = done;
     voice.play().catch(done);
   });
@@ -958,6 +998,7 @@ function dip(down) {   // the real voice steps aside while the translation speak
 }
 
 function caption(text) {   // the translation in big letters on the picture, before the voice is ready
+  signOnPicture = false;
   $("caption").textContent = text;
   clearTimeout(captionTimer);
   captionTimer = setTimeout(() => ($("caption").textContent = ""), 12000);

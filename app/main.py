@@ -511,10 +511,15 @@ async def live_in_call(socket: WebSocket, code: str):
         person = str(hello.get("person", ""))
         me, _ = the_two(room, person)
         work = []
-        async with meta.LiveEars([brain.LANGUAGE_NAMES[me["lang"]]]) as ears:
-            text = await asyncio.wait_for(hear_live(socket, ears, work), LIVE_SECONDS)
-        text = devanagari_to_telugu(text)
-        reply = await share(room, person, text, work) if text else {"text": ""}
+        rooms.talking(room, person, "speaking")   # the other phone shows "… is speaking"
+        try:
+            async with meta.LiveEars([brain.LANGUAGE_NAMES[me["lang"]]]) as ears:
+                text = await asyncio.wait_for(hear_live(socket, ears, work), LIVE_SECONDS)
+            text = devanagari_to_telugu(text)
+            rooms.talking(room, person, "translating" if text else "")
+            reply = await share(room, person, text, work) if text else {"text": ""}
+        finally:
+            rooms.talking(room, person, "")
     except WebSocketDisconnect:
         return   # the phone went away (the sentence was a cough, or the call ended)
     except HTTPException as e:

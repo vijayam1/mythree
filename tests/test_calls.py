@@ -799,3 +799,20 @@ def test_a_phone_that_stops_asking_has_gone(monkeypatch):
     room.seen["b"] -= rooms.GONE_SECONDS + 1   # the grandson's phone was closed a minute ago
     assert room.free_places() == ["b"]
     assert client.post(f"/api/calls/{code}/join", json={"who": "Grandson", "lang": "en"}).json()["person"] == "b"
+
+
+def test_the_other_phone_is_told_who_is_speaking(monkeypatch):
+    # 1 Nov: on video the wait for a translation felt like a broken call; now the other phone shows a sign
+    room = rooms.start("Grandpa", "te")
+    rooms.join(room, "b", "Grandson", "en")
+
+    async def scene():
+        waiting = asyncio.create_task(rooms.wait(room, after=0, known=2, person="b"))
+        await asyncio.sleep(0.01)
+        rooms.talking(room, "a", "speaking")
+        return await asyncio.wait_for(waiting, 1)   # woken at once, not after 25 s
+    assert asyncio.run(scene())["talking"] == {"a": "speaking"}
+    rooms.talking(room, "a", "translating")
+    assert room.state()["talking"] == {"a": "translating"}
+    rooms.talking(room, "a")
+    assert room.state()["talking"] == {}

@@ -61,6 +61,7 @@ class Room:
         self.news = asyncio.Event()          # set whenever something changes, to wake waiting phones
         self.seen: dict[str, float] = {}     # when each person's phone last asked for news (memory only)
         self.ended = False                   # someone tapped End: the call is over for both
+        self.talking: dict[str, str] = {}    # "speaking" or "translating" right now, for the other phone's sign
         self.used = time.monotonic()
         self.dirty = False                   # changed since the last copy to the store
 
@@ -95,7 +96,8 @@ class Room:
 
     def state(self, after: int = 0, person: str = "", seen: int = 0) -> dict:
         return {"code": self.code, "people": self.people, "invite": self.invite, "messages": self.messages[after:],
-                "notes": self.new_notes(person, seen), "away": [p for p in self.people if not self.here(p)], "ended": self.ended}
+                "notes": self.new_notes(person, seen), "away": [p for p in self.people if not self.here(p)], "ended": self.ended,
+                "talking": {p: what for p, what in self.talking.items() if what}}
 
 
 rooms: dict[str, Room] = {}
@@ -202,6 +204,15 @@ def join(room: Room, place: str, who: str, lang: str, voice: str = "") -> str:
     room.seen[place] = time.monotonic()
     room.changed()
     return place
+
+
+def talking(room: Room, person: str, what: str = ""):
+    """What this person is doing right now: "speaking", "translating", or "" (done). The other phone
+    shows a sign, so a wait feels like waiting for an interpreter, not like a broken call (1 Nov).
+    Memory only: not worth a copy in the store."""
+    if room.talking.get(person, "") != what:
+        room.talking[person] = what
+        room.wake()
 
 
 def end(room: Room):
