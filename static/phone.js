@@ -3,7 +3,7 @@
 // translated, and speaks what the other person said, in that person's own voice.
 // The laptop page (index.html, ears.js) is separate and unchanged.
 
-const PAUSE_MS = 900;        // this much quiet ends a sentence (was 1.4 s: 1 Nov, the lag on video)
+const PAUSE_MS = 700;        // this much quiet ends a sentence (was 1.4 s, then 0.9 s: the lag on video, 1–2 Nov)
 const MIN_SPEECH_MS = 400;   // shorter sounds (a cough, a click) are ignored
 // Long talking goes in pieces, so the other person hears it while it goes on (31 Oct, call to India:
 // sentences of 30+ words reached the other phone only after 15 s of talking). After 4 s a breath ends
