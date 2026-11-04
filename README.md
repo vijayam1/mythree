@@ -6,9 +6,16 @@ A grandfather in India speaks only Telugu. His grandson in the US speaks only En
 
 Built by **Vijaya Meda** for the Meta Global AI Developer Hackathon (26 Oct – 4 Nov 2026).
 
-**Try it:** https://vijaya-meda--mythree-web.us-east.modal.run/phone (two phones: one starts a call, the other joins with the 4-digit code).
+▶️ **3-minute demo video:** https://www.youtube.com/watch?v=0NtLBp79Ots (both phones of the same real call, side by side, in sync)
 
-The free **Try page** (https://vijaya-meda--mythree-web.us-east.modal.run/try) lets anyone speak any of **102 languages** (all 22 of India's, and 80 more) and hear it in any other, in a ready-made voice or, after 20 seconds of recording, in their own. 94 of them can be spoken; the other 8 Indian languages are shown in writing. The list is in `app/languages.py`. To keep costs safe, visitors' voices may use about 1,200 ElevenLabs characters a day (about 20 sentences); after that, the phone's own voice speaks until the next day. It is open for the hackathon and its judging. It closes by itself when judging ends, at midnight ET at the end of 9 November 2026, also when you run your own copy. The phone call stays open.
+> **Judges: try it in 1 minute, with one phone or computer**
+> 1. Open **https://mythreyi.in** (Safari on iPhone, Chrome on Android or a computer), somewhere quiet, and allow the microphone.
+> 2. Choose **I speak** and **Hear it in**, tap the **green button**, say one or two sentences, and tap the **red button**.
+> 3. In a few seconds you read and hear it in the other language. Then tap **🎤 Use my own voice**: after 20 seconds of reading, Mythree speaks your words in your own voice. Tap **Done: delete my voice** when you finish.
+>
+> **The real call needs two phones:** open https://vijaya-meda--mythree-web.us-east.modal.run/phone on one, tap **Start a call**, and send the link to the other phone (or type its 4-digit code there).
+
+The free **Try page** (https://mythreyi.in, the same as https://vijaya-meda--mythree-web.us-east.modal.run/try) lets anyone speak any of **102 languages** (all 22 of India's, and 80 more) and hear it in any other, in a ready-made voice or, after 20 seconds of recording, in their own. 94 of them can be spoken; the other 8 Indian languages are shown in writing. The list is in `app/languages.py`. To keep costs safe, visitors' voices may use about 3,800 ElevenLabs characters a day (about 60 sentences); after that, the phone's own voice speaks until the next day. It is open for the hackathon and its judging. It closes by itself when judging ends, at midnight ET at the end of 9 November 2026, also when you run your own copy. The phone call stays open.
 
 ## Built during the hackathon
 

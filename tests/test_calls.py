@@ -431,7 +431,8 @@ def test_the_free_page_has_a_daily_limit(monkeypatch):
 
 def test_family_characters_are_kept_for_the_family(monkeypatch):
     no_passcode(monkeypatch)
-    monkeypatch.setattr("app.voice.characters_left", lambda: 19_000)   # under the family's reserve
+    from app import main
+    monkeypatch.setattr("app.voice.characters_left", lambda: main.FAMILY_CHARACTERS - 1_000)   # under the family's reserve
     spoken = []
     monkeypatch.setattr("app.voice.speak_as", lambda *a: spoken.append(a) or iter([b"mp3"]))
     reply = client.post("/api/try/speak", json={"text": "Hello", "voice": "visitorVoice1"})

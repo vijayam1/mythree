@@ -763,7 +763,7 @@ TRY_MINUTES = 60
 SHARE_AFTER_MINUTES = 10   # when all voice places are taken, a visitor voice this old may make room
 # Protecting the family's own Mythree (Vijaya, her husband, her son, and her demo video):
 TRY_MAX_VOICES = 7           # visitors hold at most 7 of ElevenLabs' 10 voice places; 3 stay for the family
-FAMILY_CHARACTERS = 20_000   # below this many characters left this month, visitors hear a standard voice
+FAMILY_CHARACTERS = 2_000   # below this many characters left this month, visitors hear a standard voice
 VOICES_FULL = ("So many people are trying Mythree right now that all of its own-voice places are in use. 🙏 "
                                      "Everything else works: speak, and you'll read and hear it in a standard voice. "
                                      "Come back in about 10 minutes and tap \"Try my own voice again\".")
@@ -780,7 +780,7 @@ async def family_characters_safe() -> bool:
 
 # The visitors' voices may use only so many characters a day, so a busy evening (a post going viral) can't
 # spend the whole month at once: judges trying Mythree on the last day still hear the real voices.
-TRY_CHARACTERS_PER_DAY = 1_200   # about 20 sentences; after that, the phone's own voice until tomorrow
+TRY_CHARACTERS_PER_DAY = 3_800   # about 60 sentences; after that, the phone's own voice until tomorrow
 VOICES_REST_TODAY = ("Mythree's voices have spoken a lot today, so for the rest of the day you'll hear your phone's "
                      "own voice. Everything else works the same! Come back tomorrow for the real voice.")
 
