@@ -11,15 +11,15 @@ Built by **Vijaya Meda** for the Meta Global AI Developer Hackathon (26 Oct – 
 > **Judges: how to try Mythree**
 >
 > **Mythree is the video call.** It needs two phones (Safari on iPhone, Chrome on Android), ideally in two rooms:
-> 1. On the first phone, open **https://vijaya-meda--mythree-web.us-east.modal.run/phone**. Choose who you are and your language (Telugu or English), and who you're calling and their language. *(Optional: **Record my voice**, so the other phone hears you in your own voice.)* Tap **Start a call**.
+> 1. On the first phone, open **[https://vijaya-meda--mythree-web.us-east.modal.run/phone](https://vijaya-meda--mythree-web.us-east.modal.run/phone)**. Choose who you are and your language (Telugu or English), and who you're calling and their language. *(Optional: **Record my voice**, so the other phone hears you in your own voice.)* Tap **Start a call**.
 > 2. Send the link to the second phone (or type the 4-digit call code there), and tap the green **Join** button.
 > 3. Tap **Video**, tap the green mic, and speak one short sentence. In a few seconds the other phone reads and hears it in its own language. Tap **End** when you're done.
 >
 > *Testing alone, without Telugu?* Set yourself to English and the other phone to Telugu. Speak English into the first phone, and the second phone says it in Telugu, in your voice if you recorded it.
 >
-> **Only one phone? A 1-minute taste:** **https://mythreyi.in** shows the heart of the call (hearing, translating, your own voice) without the call, in 102 languages. Choose **I speak** and **Hear it in**, tap the **green button**, say a sentence, and tap the **red button**. Then try **🎤 Use my own voice**, and tap **Done: delete my voice** at the end.
+> **Only one phone? A 1-minute taste:** **[https://mythreyi.in](https://mythreyi.in)** shows the heart of the call (hearing, translating, your own voice) without the call, in 102 languages. Choose **I speak** and **Hear it in**, tap the **green button**, say a sentence, and tap the **red button**. Then try **🎤 Use my own voice**, and tap **Done: delete my voice** at the end.
 
-The free **Try page** (https://mythreyi.in, the same as https://vijaya-meda--mythree-web.us-east.modal.run/try) lets anyone speak any of **102 languages** (all 22 of India's, and 80 more) and hear it in any other, in a ready-made voice or, after 20 seconds of recording, in their own. 94 of them can be spoken; the other 8 Indian languages are shown in writing. The list is in `app/languages.py`. To keep costs safe, visitors' voices may use about 3,800 ElevenLabs characters a day (about 60 sentences); after that, the phone's own voice speaks until the next day. It is open for the hackathon and its judging. It closes by itself when judging ends, at midnight ET at the end of 9 November 2026, also when you run your own copy. The phone call stays open.
+The free **Try page** ([https://mythreyi.in](https://mythreyi.in), the same as [https://vijaya-meda--mythree-web.us-east.modal.run/try](https://vijaya-meda--mythree-web.us-east.modal.run/try)) lets anyone speak any of **102 languages** (all 22 of India's, and 80 more) and hear it in any other, in a ready-made voice or, after 20 seconds of recording, in their own. 94 of them can be spoken; the other 8 Indian languages are shown in writing. The list is in `app/languages.py`. To keep costs safe, visitors' voices may use about 3,800 ElevenLabs characters a day (about 60 sentences); after that, the phone's own voice speaks until the next day. It is open for the hackathon and its judging. It closes by itself when judging ends, at midnight ET at the end of 9 November 2026, also when you run your own copy. The phone call stays open.
 
 ## Built during the hackathon
 
